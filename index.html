@@ -561,9 +561,12 @@ body.focus-mode .stage{border-radius:14px;}
         <select id="exportScale">
           <option value="1">1x</option>
           <option value="2" selected>2x</option>
-          <option value="4">4x</option>
+          <option value="4">4x 超清 4K</option>
+          <option value="8">8x 超清 8K</option>
         </select>
       </label>
+      <label class="switch-row" style="margin-top:8px;"><span>导出带坐标</span><input type="checkbox" id="exportRulers" checked><i class="switch"></i></label>
+      <p class="hint">4x ≈ 3840px（4K 宽）；8x 自动适配画布上限，手机/电脑均可高清导出</p>
     </section>
 
     <section class="card">
@@ -664,9 +667,12 @@ body.focus-mode .stage{border-radius:14px;}
 /* ================= 常量 ================= */
 const CELL = 16;                 /* 单元格固定 16px */
 const MIN_SIZE = 4, MAX_SIZE = 100;
+const MAX_PHYS = 8192;           /* 物理像素上限（4K/8K 导出安全线） */
+const DPR = Math.min(window.devicePixelRatio || 1, 3);   /* 手机高分屏高清渲染 */
 const LS_KEY = 'pbd-cinnamoroll-v1';
 const LS_PRESETS = 'pbd-custom-presets-v1', LS_STAGEH = 'pbd-stage-h-v1';
 const LS_FOCUSTOOLS = 'pbd-focus-tools-v1';
+let cssW = 0, cssH = 0;          /* 画布逻辑像素尺寸（配合 DPR 高清渲染） */
 
 const PALETTE_BASE = [
   {code:'H1', name:'白色', hex:'#FFFFFF'},
@@ -734,7 +740,7 @@ const zoomRange = $('zoomRange'), zoomValue = $('zoomValue');
 const toggleRef = $('toggleRef'), refOpacity = $('refOpacity'), refOpacityValue = $('refOpacityValue');
 const btnLoadImage = $('btnLoadImage'), fileImage = $('fileImage'), btnRemoveRef = $('btnRemoveRef');
 const btnSave = $('btnSave'), btnLoad = $('btnLoad'), fileProject = $('fileProject');
-const btnExport = $('btnExport'), btnCopyStats = $('btnCopyStats'), exportScale = $('exportScale');
+const btnExport = $('btnExport'), btnCopyStats = $('btnCopyStats'), exportScale = $('exportScale'), exportRulers = $('exportRulers');
 const paletteGrid = $('paletteGrid'), selectedColor = $('selectedColor'), selectedName = $('selectedName');
 const customColor = $('customColor'), btnAddColor = $('btnAddColor');
 const btnGenerate = $('btnGenerate'), btnFit = $('btnFit');
@@ -818,16 +824,22 @@ function layoutCanvases(){
   const z = effZoom();
   const w = Math.round(state.cols * CELL * z);
   const h = Math.round(state.rows * CELL * z);
+  cssW = w; cssH = h;
+  const dpr = Math.min(DPR, 3, MAX_PHYS / Math.max(w, h, 1));
   [bgCanvas, mainCanvas].forEach(function(cv){
-    cv.width = Math.max(1, w); cv.height = Math.max(1, h);
+    cv.width = Math.max(1, Math.round(w * dpr)); cv.height = Math.max(1, Math.round(h * dpr));
     cv.style.width = w + 'px'; cv.style.height = h + 'px';
+    cv.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
   });
   stack.style.width = w + 'px'; stack.style.height = h + 'px';
-  /* 标尺 */
-  rulerX.width = Math.max(1, w); rulerX.height = 24;
+  /* 标尺（同样按 DPR 高清渲染） */
+  const rh = Math.round(24 * dpr);
+  rulerX.width = Math.max(1, Math.round(w * dpr)); rulerX.height = rh;
   rulerX.style.width = w + 'px'; rulerX.style.height = '24px';
-  rulerY.width = 24; rulerY.height = Math.max(1, h);
+  rulerY.width = rh; rulerY.height = Math.max(1, Math.round(h * dpr));
   rulerY.style.width = '24px'; rulerY.style.height = h + 'px';
+  rulerX.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+  rulerY.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
   canvasBox.classList.toggle('no-rulers', !state.showRulers);
   canvasBox.style.width = (w + (state.showRulers ? 24 : 0)) + 'px';
   canvasBox.style.height = (h + (state.showRulers ? 24 : 0)) + 'px';
@@ -899,7 +911,8 @@ function drawGridLines(ctx, s, w, h){
 function drawTop(){
   const ctx = mainCanvas.getContext('2d');
   const z = effZoom();
-  ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+  const w = Math.round(state.cols * CELL * z), h = Math.round(state.rows * CELL * z);
+  ctx.clearRect(0, 0, w, h);
   const s = CELL * z;
   for (let r = 0; r < state.rows; r++){
     for (let c = 0; c < state.cols; c++){
@@ -907,7 +920,7 @@ function drawTop(){
       if (hex) drawCell(ctx, c, r, s, hex);
     }
   }
-  if (state.showGrid) drawGridLines(ctx, s, mainCanvas.width, mainCanvas.height);
+  if (state.showGrid) drawGridLines(ctx, s, w, h);
 }
 
 /* 单格局部重绘（绘制时快速更新） */
@@ -943,9 +956,9 @@ function drawRulers(){
 
   /* 顶部横向标尺 */
   const cx = rulerX.getContext('2d');
-  cx.clearRect(0, 0, rulerX.width, rulerX.height);
+  cx.clearRect(0, 0, cssW, 24);
   cx.fillStyle = bg;
-  cx.fillRect(0, 0, rulerX.width, rulerX.height);
+  cx.fillRect(0, 0, cssW, 24);
   cx.strokeStyle = lineColor;
   cx.fillStyle = textColor;
   cx.font = '9px "Segoe UI","PingFang SC",sans-serif';
@@ -963,13 +976,13 @@ function drawRulers(){
     cx.fillText(String(c), x + 3, 19);
   }
   cx.strokeStyle = getCssVar('--border');
-  cx.beginPath(); cx.moveTo(0, 23.5); cx.lineTo(rulerX.width, 23.5); cx.stroke();
+  cx.beginPath(); cx.moveTo(0, 23.5); cx.lineTo(cssW, 23.5); cx.stroke();
 
   /* 左侧纵向标尺 */
   const cy = rulerY.getContext('2d');
-  cy.clearRect(0, 0, rulerY.width, rulerY.height);
+  cy.clearRect(0, 0, 24, cssH);
   cy.fillStyle = bg;
-  cy.fillRect(0, 0, rulerY.width, rulerY.height);
+  cy.fillRect(0, 0, 24, cssH);
   cy.strokeStyle = lineColor;
   cy.fillStyle = textColor;
   cy.font = '9px "Segoe UI","PingFang SC",sans-serif';
@@ -986,18 +999,18 @@ function drawRulers(){
     cy.fillText(String(r), 3, y + 10);
   }
   cy.strokeStyle = getCssVar('--border');
-  cy.beginPath(); cy.moveTo(23.5, 0); cy.lineTo(23.5, rulerY.height); cy.stroke();
+  cy.beginPath(); cy.moveTo(23.5, 0); cy.lineTo(23.5, cssH); cy.stroke();
 }
 
 /* ================= 参考底图（底层画布） ================= */
 function drawReference(){
   const ctx = bgCanvas.getContext('2d');
-  ctx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+  ctx.clearRect(0, 0, cssW, cssH);
   if (!state.refImage || !state.showRef) return;
   const iw = state.refImage.naturalWidth || state.refImage.width;
   const ih = state.refImage.naturalHeight || state.refImage.height;
   if (!iw || !ih) return;
-  const W = bgCanvas.width, H = bgCanvas.height;
+  const W = cssW, H = cssH;
   const scale = Math.max(W / iw, H / ih);
   const dw = iw * scale, dh = ih * scale;
   ctx.save();
@@ -1486,19 +1499,48 @@ function downloadText(filename, text, mime){
   setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
 }
 function exportPNG(){
-  const ex = clampInt(exportScale.value, 1, 4);
-  const w = Math.max(1, state.cols * CELL * ex), h = Math.max(1, state.rows * CELL * ex);
+  let ex = clampInt(exportScale.value, 1, 8);
+  const baseW = Math.max(1, state.cols * CELL), baseH = Math.max(1, state.rows * CELL);
+  if (baseW * ex > MAX_PHYS || baseH * ex > MAX_PHYS){
+    ex = Math.max(1, Math.floor(Math.min(MAX_PHYS / baseW, MAX_PHYS / baseH)));
+  }
+  const s = CELL * ex;
+  const withRulers = !!(exportRulers && exportRulers.checked);
+  const labelW = withRulers ? Math.round(s * 0.6) : 0;
+  const labelH = withRulers ? Math.round(s * 0.6) : 0;
+  const w = baseW * ex + labelW, h = baseH * ex + labelH;
   const cv = document.createElement('canvas');
   cv.width = w; cv.height = h;
   const ctx = cv.getContext('2d');
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, w, h);
-  const s = CELL * ex;
+  if (withRulers){
+    ctx.fillStyle = '#f2f6fb';
+    ctx.fillRect(0, 0, labelW, h); ctx.fillRect(0, 0, w, labelH);
+    ctx.strokeStyle = '#b9c6d6';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, labelH + 0.5); ctx.lineTo(w, labelH + 0.5);
+    ctx.moveTo(labelW + 0.5, 0); ctx.lineTo(labelW + 0.5, h);
+    ctx.stroke();
+    ctx.fillStyle = '#5b6b80';
+    ctx.font = '600 ' + Math.max(8, Math.round(s * 0.24)) + 'px "Segoe UI","PingFang SC",sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const step = s >= 28 ? 1 : (s >= 14 ? 2 : (s >= 8 ? 5 : 10));
+    for (let c = 1; c <= state.cols; c++){
+      if (c % step) continue;
+      ctx.fillText(String(c), labelW + (c - 0.5) * s, labelH / 2);
+    }
+    for (let r = 1; r <= state.rows; r++){
+      if (r % step) continue;
+      ctx.fillText(String(r), labelW / 2, labelH + (r - 0.5) * s);
+    }
+  }
   for (let r = 0; r < state.rows; r++){
     for (let c = 0; c < state.cols; c++){
       const hex = state.grid[r][c];
       if (!hex) continue;
-      const x = c * s, y = r * s;
+      const x = labelW + c * s, y = labelH + r * s;
       if (state.mode === 'bead'){
         drawBead(ctx, x, y, s, hex);
       } else {
@@ -1522,13 +1564,13 @@ function exportPNG(){
     ctx.strokeStyle = 'rgba(110,120,135,.45)';
     ctx.lineWidth = Math.max(1, ex);
     ctx.beginPath();
-    for (let c = 1; c < state.cols; c++){ const x = Math.round(c * s) + 0.5; ctx.moveTo(x, 0); ctx.lineTo(x, h); }
-    for (let r = 1; r < state.rows; r++){ const y = Math.round(r * s) + 0.5; ctx.moveTo(0, y); ctx.lineTo(w, y); }
+    for (let c = 1; c < state.cols; c++){ const x = Math.round(labelW + c * s) + 0.5; ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+    for (let r = 1; r < state.rows; r++){ const y = Math.round(labelH + r * s) + 0.5; ctx.moveTo(0, y); ctx.lineTo(w, y); }
     ctx.stroke();
     ctx.restore();
   }
-  download(cv.toDataURL('image/png'), '拼豆图纸_' + state.cols + 'x' + state.rows + '.png');
-  toast('图纸 PNG 已导出');
+  download(cv.toDataURL('image/png'), '拼豆图纸_' + state.cols + 'x' + state.rows + (withRulers ? '_带坐标' : '') + '.png');
+  toast('图纸 PNG 已导出' + (withRulers ? '（含坐标）' : ''));
 }
 
 /* ================= 用料清单 ================= */
