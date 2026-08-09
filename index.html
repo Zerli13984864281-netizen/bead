@@ -395,6 +395,73 @@ main{
 .modal-mask[hidden]{display:none;}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 
+/* ================= 沉浸模式（照片全屏拼豆） ================= */
+body.focus-mode{overflow:hidden;}
+body.focus-mode header{display:none;}
+body.focus-mode main{display:block; height:100vh; padding:0;}
+body.focus-mode .left-panel, body.focus-mode .right-panel{display:none;}
+body.focus-mode .stage-wrap{height:100vh; min-height:0; order:1; border-radius:0; padding:8px 8px 96px;}
+body.focus-mode .statusbar, body.focus-mode .materials-card, body.focus-mode .stage-resize{display:none;}
+body.focus-mode .stage{border-radius:14px;}
+
+.focus-exit{
+  position:fixed; top:10px; right:10px; z-index:62;
+  background:var(--panel); color:var(--text); border:1px solid var(--border);
+  border-radius:20px; padding:7px 14px; font-size:12px; cursor:pointer;
+  box-shadow:0 6px 20px var(--shadow); transition:all .18s;
+}
+.focus-exit:hover{border-color:var(--accent); color:var(--accent);}
+
+.focus-dock{
+  position:fixed; left:0; right:0; bottom:0; z-index:58;
+  background:var(--panel); border-top:1px solid var(--border);
+  padding:9px 10px 12px; display:flex; flex-direction:column; gap:8px;
+  box-shadow:0 -8px 30px var(--shadow); max-height:42vh; overflow:hidden;
+}
+.focus-tools{display:flex; gap:6px; overflow-x:auto; padding-bottom:2px;}
+.focus-colors{display:flex; gap:6px; overflow-x:auto; align-items:center; padding-bottom:2px;}
+.focus-swatch{
+  flex:none; width:40px; height:40px; border-radius:10px; cursor:pointer;
+  border:2px solid rgba(0,0,0,.22); position:relative; padding:0;
+  display:flex; align-items:flex-end; justify-content:center;
+  box-shadow:inset 0 1px 4px rgba(0,0,0,.22);
+}
+.focus-swatch b{
+  font-size:8.5px; font-weight:700; line-height:1; padding:2px 3px;
+  border-radius:4px; background:rgba(0,0,0,.28); letter-spacing:.5px;
+}
+.focus-swatch.active{outline:2px solid var(--accent); outline-offset:2px;}
+.focus-plus{
+  flex:none; width:40px; height:40px; border-radius:10px; cursor:pointer;
+  background:var(--accent-soft); border:1.5px dashed var(--accent);
+  color:var(--accent); font-size:22px; line-height:1; padding:0;
+  transition:transform .15s, background .2s, color .2s;
+}
+.focus-plus:hover{transform:scale(1.06); background:var(--accent); color:#1b1213;}
+.ft{
+  flex:none; background:var(--panel-2); color:var(--text); border:1px solid var(--border);
+  border-radius:9px; padding:7px 10px; font-size:11.5px; cursor:pointer;
+  transition:transform .15s, background .2s, color .2s, border-color .2s;
+}
+.ft:hover{transform:translateY(-1px); border-color:var(--accent); color:var(--accent);}
+.ft.on{background:var(--accent-soft); border-color:var(--accent); color:var(--accent);}
+
+.focus-menu{
+  position:fixed; bottom:100px; right:12px; z-index:66; width:min(280px, calc(100vw - 24px));
+  background:var(--panel); border:1px solid var(--border); border-radius:16px;
+  box-shadow:0 20px 60px rgba(0,0,0,.5); padding:12px; display:flex; flex-direction:column; gap:8px;
+}
+.focus-menu-head{display:flex; align-items:center; justify-content:space-between; font-size:12.5px; font-weight:600; color:var(--text);}
+.focus-menu-list{display:grid; grid-template-columns:1fr 1fr; gap:6px; max-height:300px; overflow-y:auto;}
+.focus-menu-item{
+  background:var(--panel-2); color:var(--text-dim); border:1px solid var(--border);
+  border-radius:9px; padding:8px 6px; font-size:11px; cursor:pointer; text-align:center;
+  transition:all .15s;
+}
+.focus-menu-item:hover{border-color:var(--accent); color:var(--accent);}
+.focus-menu-item.on{background:var(--accent-soft); border-color:var(--accent); color:var(--accent); font-weight:600;}
+.focus-dock[hidden], .focus-exit[hidden], .focus-menu[hidden]{display:none !important;}
+
 </style>
 </head>
 <body>
@@ -476,6 +543,7 @@ main{
       <label class="switch-row"><span>显示底图</span><input type="checkbox" id="toggleRef" checked><i class="switch"></i></label>
       <label class="slider-row">底图透明度 <input type="range" id="refOpacity" min="5" max="100" value="40"><b id="refOpacityValue">40%</b></label>
       <button id="btnRemoveRef" class="btn ghost danger-text" style="width:100%;">✖ 移除底图</button>
+      <button id="btnFocus" class="btn ghost" style="width:100%; margin-top:8px;">🖥️ 沉浸模式 <small style="color:var(--text-dim);font-weight:400;">照片全屏拼豆</small></button>
     </section>
 
     <section class="card">
@@ -567,6 +635,18 @@ main{
   </aside>
 </main>
 
+<div class="focus-exit" id="focusExit" hidden>✕ 退出沉浸</div>
+<div class="focus-dock" id="focusDock" hidden>
+  <div class="focus-tools" id="focusTools"></div>
+  <div class="focus-colors" id="focusColors">
+    <button class="focus-plus" id="focusPlus" title="添加工具">＋</button>
+  </div>
+</div>
+<div class="focus-menu" id="focusMenu" hidden>
+  <div class="focus-menu-head">＋ 添加工具 <button id="focusMenuClose" class="btn ghost small">✕</button></div>
+  <div class="focus-menu-list" id="focusMenuList"></div>
+  <button class="btn danger" id="btnExitFocus" style="width:100%;">✕ 退出沉浸模式</button>
+</div>
 <div class="modal-mask" id="confirmMask" hidden>
   <div class="modal-box">
     <h3 id="confirmTitle">删除预设</h3>
@@ -586,6 +666,7 @@ const CELL = 16;                 /* 单元格固定 16px */
 const MIN_SIZE = 4, MAX_SIZE = 100;
 const LS_KEY = 'pbd-cinnamoroll-v1';
 const LS_PRESETS = 'pbd-custom-presets-v1', LS_STAGEH = 'pbd-stage-h-v1';
+const LS_FOCUSTOOLS = 'pbd-focus-tools-v1';
 
 const PALETTE_BASE = [
   {code:'H1', name:'白色', hex:'#FFFFFF'},
@@ -665,6 +746,8 @@ const customSize = $('customSize'), btnAddPreset = $('btnAddPreset');
 const btnZoomIn = $('btnZoomIn'), btnZoomOut = $('btnZoomOut'), btnZoomFit = $('btnZoomFit');
 const stageWrap = document.querySelector('.stage-wrap'), stageResize = $('stageResize');
 const confirmMask = $('confirmMask'), confirmTitle = $('confirmTitle'), confirmText = $('confirmText'), confirmOk = $('confirmOk'), confirmCancel = $('confirmCancel');
+const btnFocus = $('btnFocus'), focusExit = $('focusExit'), focusDock = $('focusDock'), focusTools = $('focusTools'), focusColors = $('focusColors');
+const focusMenu = $('focusMenu'), focusMenuList = $('focusMenuList'), focusMenuClose = $('focusMenuClose'), btnExitFocus = $('btnExitFocus');
 
 /* ================= 状态 ================= */
 const state = {
@@ -676,6 +759,7 @@ const state = {
   color: '#CBE9F7',
   customColors: [],
   customPresets: [],
+  focus: false, focusTools: [],
   refImage: null, refDataUrl: null,
   history: [], future: []
 };
@@ -1003,6 +1087,7 @@ function generatePattern(){
   renderAll();
   autosave();
   toast('已生成拼豆图纸（' + cols + '×' + rows + '，可撤销）');
+  enterFocus();
 }
 function fitZoom(){
   const availW = Math.max(80, stage.clientWidth - 20);
@@ -1110,6 +1195,7 @@ function setColor(hex){
   document.querySelectorAll('.swatch').forEach(function(el){
     el.classList.toggle('active', el.dataset.hex.toUpperCase() === hex.toUpperCase());
   });
+  refreshFocus();
 }
 function setTool(tool){
   state.tool = tool;
@@ -1176,6 +1262,7 @@ function renderAll(){
   updateStats();
   sbSize.textContent = state.cols + ' × ' + state.rows;
   sbZoom.textContent = Math.round(effZoom() * 100) + '%';
+  refreshFocus();
 }
 
 /* ================= 撤销 / 重做 ================= */
@@ -1278,6 +1365,112 @@ function removeCustomPreset(w, h){
   saveCustomPresets();
   renderCustomPresets();
   toast('已删除预设');
+}
+
+/* ================= 沉浸模式（照片全屏拼豆） ================= */
+const FOCUS_TOOLS = {
+  brush:    { label: '✏️ 画笔',     action: function(){ setTool('brush'); } },
+  eraser:   { label: '🧽 橡皮',     action: function(){ setTool('eraser'); } },
+  fill:     { label: '🪣 填充',     action: function(){ setTool('fill'); } },
+  picker:   { label: '💧 取色',     action: function(){ setTool('picker'); } },
+  undo:     { label: '↩️ 撤销',     action: function(){ undo(); } },
+  redo:     { label: '↪️ 重做',     action: function(){ redo(); } },
+  grid:     { label: '▦ 网格线',    action: function(){ state.showGrid = !state.showGrid; toggleGrid.checked = state.showGrid; drawTop(); autosave(); } },
+  rulers:   { label: '📏 标尺',     action: function(){ state.showRulers = !state.showRulers; toggleRulers.checked = state.showRulers; renderAll(); autosave(); } },
+  numbers:  { label: '🔢 色号',     action: function(){ state.showNumbers = !state.showNumbers; toggleNumbers.checked = state.showNumbers; drawTop(); autosave(); } },
+  fit:      { label: '📐 适应',     action: function(){ fitZoom(); } },
+  generate: { label: '🪄 生成图纸',  action: function(){ generatePattern(); } },
+  export:   { label: '🖼️ 导出PNG',  action: function(){ exportPNG(); } },
+  save:     { label: '💾 保存工程',  action: function(){ saveProject(); } }
+};
+let focusSig = '';
+function usedColorsList(){
+  const set = new Set();
+  for (let r = 0; r < state.rows; r++){
+    const row = state.grid[r];
+    for (let c = 0; c < state.cols; c++){ const v = row[c]; if (v) set.add(v); }
+  }
+  return Array.from(set);
+}
+function renderFocusDock(){
+  const colors = state.focus ? usedColorsList() : [];
+  const sig = state.focus + '|' + colors.join(',') + '|' + state.focusTools.join(',') + '|' + state.color;
+  if (sig === focusSig) return;
+  focusSig = sig;
+  focusDock.hidden = !state.focus;
+  focusExit.hidden = !state.focus;
+  focusMenu.hidden = true;
+  focusTools.innerHTML = '';
+  state.focusTools.forEach(function(key){
+    const t = FOCUS_TOOLS[key];
+    if (!t) return;
+    const b = document.createElement('button');
+    b.className = 'ft';
+    b.dataset.focusTool = key;
+    b.textContent = t.label;
+    focusTools.appendChild(b);
+  });
+  focusColors.querySelectorAll('.focus-swatch').forEach(function(el){ el.remove(); });
+  colors.forEach(function(hex){
+    const sw = document.createElement('button');
+    sw.className = 'focus-swatch' + (hex === state.color ? ' active' : '');
+    sw.style.background = hex;
+    sw.dataset.hex = hex;
+    const code = colorCode(hex);
+    const name = colorName(hex);
+    if (code){
+      const b = document.createElement('b');
+      b.textContent = code;
+      b.style.color = luminance(hex) > 0.55 ? '#1b1213' : '#ffffff';
+      sw.appendChild(b);
+    }
+    sw.title = (code ? code + ' ' : '') + name;
+    focusColors.appendChild(sw);
+  });
+}
+function refreshFocus(){ renderFocusDock(); }
+function enterFocus(){
+  if (state.focus) return;
+  state.focus = true;
+  document.body.classList.add('focus-mode');
+  stageWrap.dataset.prevH = stageWrap.style.height || '';
+  stageWrap.style.height = '100vh';
+  focusSig = '';
+  renderFocusDock();
+  try { fitZoom(); } catch(e){}
+  toast('已进入沉浸模式');
+}
+function exitFocus(){
+  if (!state.focus) return;
+  state.focus = false;
+  document.body.classList.remove('focus-mode');
+  stageWrap.style.height = stageWrap.dataset.prevH || '';
+  focusSig = '';
+  renderFocusDock();
+  toast('已退出沉浸模式');
+}
+function saveFocusTools(){
+  try { localStorage.setItem(LS_FOCUSTOOLS, JSON.stringify(state.focusTools)); } catch(e){}
+}
+function toggleFocusTool(key){
+  const i = state.focusTools.indexOf(key);
+  if (i >= 0) state.focusTools.splice(i, 1);
+  else state.focusTools.push(key);
+  saveFocusTools();
+  renderFocusMenu();
+  focusSig = '';
+  renderFocusDock();
+}
+function renderFocusMenu(){
+  focusMenuList.innerHTML = '';
+  Object.keys(FOCUS_TOOLS).forEach(function(key){
+    const on = state.focusTools.indexOf(key) >= 0;
+    const b = document.createElement('button');
+    b.className = 'focus-menu-item' + (on ? ' on' : '');
+    b.dataset.toolKey = key;
+    b.textContent = (on ? '☑️ ' : '➕ ') + FOCUS_TOOLS[key].label;
+    focusMenuList.appendChild(b);
+  });
 }
 
 /* ================= 导出 ================= */
@@ -1534,6 +1727,7 @@ function onPointerUp(){
   lastCell = null;
   if (strokeDirty){ drawTop(); }
   updateStats();
+  refreshFocus();
   autosave();
 }
 function onPointerLeave(){
@@ -1574,6 +1768,7 @@ function onKeyDown(e){
   else if (k === 'i') setTool('picker');
   else if (e.key === '+'){ zoomRange.value = clamp(parseInt(zoomRange.value, 10) + 10, 25, 200); zoomRange.dispatchEvent(new Event('input')); }
   else if (e.key === '-'){ zoomRange.value = clamp(parseInt(zoomRange.value, 10) - 10, 25, 200); zoomRange.dispatchEvent(new Event('input')); }
+  else if (e.key === 'Escape' && state.focus){ exitFocus(); }
 }
 
 /* ================= 事件绑定 ================= */
@@ -1713,6 +1908,29 @@ function bindEvents(){
   confirmOk.addEventListener('click', function(){ const cb = confirmCallback; hideConfirm(); if (cb) cb(); });
   confirmCancel.addEventListener('click', hideConfirm);
   confirmMask.addEventListener('click', function(e){ if (e.target === confirmMask) hideConfirm(); });
+  /* 沉浸模式 */
+  btnFocus.addEventListener('click', function(){ enterFocus(); });
+  focusExit.addEventListener('click', exitFocus);
+  focusDock.addEventListener('click', function(e){
+    const sw = e.target.closest('.focus-swatch');
+    if (sw){ setColor(sw.dataset.hex); return; }
+    const ft = e.target.closest('.ft');
+    if (ft){
+      const t = FOCUS_TOOLS[ft.dataset.focusTool];
+      if (t) t.action();
+      return;
+    }
+    if (e.target.closest('#focusPlus')){
+      renderFocusMenu();
+      focusMenu.hidden = !focusMenu.hidden;
+    }
+  });
+  focusMenuClose.addEventListener('click', function(){ focusMenu.hidden = true; });
+  focusMenuList.addEventListener('click', function(e){
+    const item = e.target.closest('.focus-menu-item');
+    if (item) toggleFocusTool(item.dataset.toolKey);
+  });
+  btnExitFocus.addEventListener('click', function(){ focusMenu.hidden = true; exitFocus(); });
   btnCopyMat.addEventListener('click', copyStats);
   window.addEventListener('resize', function(){
     clearTimeout(resizeTimer);
@@ -1817,6 +2035,11 @@ function init(){
   } catch(e){}
   renderPalette();
   renderCustomPresets();
+  /* 恢复沉浸模式已添加的工具 */
+  try {
+    const ft = JSON.parse(localStorage.getItem(LS_FOCUSTOOLS) || '[]');
+    if (Array.isArray(ft)) state.focusTools = ft.filter(function(x){ return typeof x === 'string' && FOCUS_TOOLS[x]; });
+  } catch(e){}
   updateControls();
   updateSizeInputs();
   renderAll();
