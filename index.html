@@ -551,6 +551,26 @@ body.focus-mode .stage{border-radius:14px;}
       <button id="btnGenerate" class="btn primary" style="width:100%; margin-top:8px;" disabled>🪄 生成拼豆图纸</button>
       <label class="switch-row"><span>显示底图</span><input type="checkbox" id="toggleRef" checked><i class="switch"></i></label>
       <label class="switch-row"><span>🪤 生成时自动适配照片比例</span><input type="checkbox" id="autoFitSize" checked><i class="switch"></i></label>
+      <label class="slider-row">颜色数量
+        <select id="colorCount">
+          <option value="auto" selected>自动（推荐）</option>
+          <option value="8">8 色</option>
+          <option value="12">12 色</option>
+          <option value="16">16 色</option>
+          <option value="24">24 色</option>
+          <option value="32">32 色</option>
+          <option value="48">48 色</option>
+          <option value="all">全部 221 色</option>
+        </select>
+      </label>
+      <label class="slider-row">图纸细节（长边）
+        <select id="detailSize">
+          <option value="60">60（标准）</option>
+          <option value="80" selected>80（高清，推荐）</option>
+          <option value="100">100（超清）</option>
+        </select>
+      </label>
+      <p class="custom-hint">自动取色会先提取照片主色再映射拼豆色号，实体相差更小；色数越少越简洁。</p>
       <label class="slider-row">底图透明度 <input type="range" id="refOpacity" min="5" max="100" value="40"><b id="refOpacityValue">40%</b></label>
       <button id="btnRemoveRef" class="btn ghost danger-text" style="width:100%;">✖ 移除底图</button>
       <button id="btnFocus" class="btn ghost" style="width:100%; margin-top:8px;">🖥️ 沉浸模式 <small style="color:var(--text-dim);font-weight:400;">照片全屏拼豆</small></button>
@@ -765,7 +785,7 @@ const btnSave = $('btnSave'), btnLoad = $('btnLoad'), fileProject = $('fileProje
 const btnExport = $('btnExport'), btnCopyStats = $('btnCopyStats'), exportScale = $('exportScale');
 const paletteGrid = $('paletteGrid'), selectedColor = $('selectedColor'), selectedName = $('selectedName');
 const customColor = $('customColor'), btnAddColor = $('btnAddColor');
-const btnGenerate = $('btnGenerate'), btnFit = $('btnFit'), autoFitSize = $('autoFitSize');
+const btnGenerate = $('btnGenerate'), btnFit = $('btnFit'), autoFitSize = $('autoFitSize'), colorCount = $('colorCount'), detailSize = $('detailSize');
 const materialsList = $('materialsList'), matSummary = $('matSummary'), btnCopyMat = $('btnCopyMat');
 const sbCoord = $('sbCoord'), sbColor = $('sbColor'), sbSize = $('sbSize'), sbZoom = $('sbZoom'), sbTotal = $('sbTotal');
 const statTotal = $('statTotal'), statColors = $('statColors'), statEmpty = $('statEmpty'), statPct = $('statPct');
@@ -1084,26 +1104,87 @@ function refDataUrlForSave(){
   return cv.toDataURL('image/png');
 }
 
-/* ================= 照片转拼豆图纸 ================= */
-function nearestColor(r, g, b){
-  const list = getColors();
+/* ================= 照片转拼豆图纸（Lab 取色 + 自适应主色） ================= */
+function rgbToLab(r, g, b){
+  r /= 255; g /= 255; b /= 255;
+  r = r > 0.04045 ? Math.pow((r + 0.055) / 1.055, 2.4) : r / 12.92;
+  g = g > 0.04045 ? Math.pow((g + 0.055) / 1.055, 2.4) : g / 12.92;
+  b = b > 0.04045 ? Math.pow((b + 0.055) / 1.055, 2.4) : b / 12.92;
+  const x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047;
+  const y = (0.2126729 * r + 0.7151522 * g + 0.0721750 * b);
+  const z = (0.0193339 * r + 0.1191920 * g + 0.9503041 * b) / 1.08883;
+  const fx = x > 0.008856 ? Math.cbrt(x) : 7.787 * x + 16 / 116;
+  const fy = y > 0.008856 ? Math.cbrt(y) : 7.787 * y + 16 / 116;
+  const fz = z > 0.008856 ? Math.cbrt(z) : 7.787 * z + 16 / 116;
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+function labDist(a, b){
+  const dl = a[0] - b[0], da = a[1] - b[1], db = a[2] - b[2];
+  return dl * dl + da * da + db * db;
+}
+function nearestColorLab(lab, list, labList){
   let best = list[0].hex, bestD = Infinity;
   for (let i = 0; i < list.length; i++){
-    const cc = hexToRgb(list[i].hex);
-    const dr = r - cc.r, dg = g - cc.g, db = b - cc.b;
-    const d = 2*dr*dr + 4*dg*dg + 3*db*db;
+    const d = labDist(lab, labList[i]);
     if (d < bestD){ bestD = d; best = list[i].hex; }
   }
   return best;
+}
+function nearestColor(r, g, b){
+  return nearestColorLab(rgbToLab(r, g, b), getColors(), getColors().map(function(c){
+    const cc = hexToRgb(c.hex);
+    return rgbToLab(cc.r, cc.g, cc.b);
+  }));
+}
+function estimateColorK(data, cols, rows){
+  const seen = new Set();
+  for (let r = 0; r < rows; r++){
+    for (let c = 0; c < cols; c++){
+      const i = (r * cols + c) * 4;
+      seen.add(((data[i] >> 4) << 8) | ((data[i + 1] >> 4) << 4) | (data[i + 2] >> 4));
+    }
+  }
+  const cells = cols * rows;
+  return clamp(Math.round(seen.size * 0.9), 6, Math.min(32, Math.max(6, Math.floor(cells / 6))));
+}
+function kMeansLab(samples, k){
+  const n = samples.length;
+  const centers = [];
+  for (let i = 0; i < k; i++){
+    centers.push(samples[Math.min(n - 1, Math.floor(i * (n - 1) / Math.max(1, k - 1)))].slice());
+  }
+  for (let it = 0; it < 12; it++){
+    const sums = [];
+    for (let j = 0; j < k; j++) sums.push({ L: 0, a: 0, b: 0, n: 0 });
+    for (let s = 0; s < n; s++){
+      let bi = 0, bd = Infinity;
+      for (let j = 0; j < k; j++){
+        const d = labDist(centers[j], samples[s]);
+        if (d < bd){ bd = d; bi = j; }
+      }
+      sums[bi].L += samples[s][0]; sums[bi].a += samples[s][1]; sums[bi].b += samples[s][2]; sums[bi].n++;
+    }
+    let moved = 0;
+    for (let j = 0; j < k; j++){
+      if (sums[j].n){
+        const nc = [sums[j].L / sums[j].n, sums[j].a / sums[j].n, sums[j].b / sums[j].n];
+        if (labDist(centers[j], nc) > 0.01) moved++;
+        centers[j] = nc;
+      }
+    }
+    if (!moved) break;
+  }
+  return centers;
 }
 function generatePattern(){
   if (!state.refImage) return toast('请先导入参考图片');
   let cols = state.cols, rows = state.rows;
   const iw = state.refImage.naturalWidth || state.refImage.width;
   const ih = state.refImage.naturalHeight || state.refImage.height;
-  /* 自动适配照片比例：保持较长边不变，另一边按比例调整 */
+  /* 自动适配照片比例：长边取「图纸细节」，另一边按比例调整 */
   if (autoFitSize && autoFitSize.checked && iw && ih){
-    const maxSide = Math.max(cols, rows);
+    const ds = detailSize ? parseInt(detailSize.value, 10) : 60;
+    const maxSide = clamp(Number.isFinite(ds) ? ds : 60, MIN_SIZE, MAX_SIZE);
     const nc = iw >= ih ? maxSide : clamp(Math.max(MIN_SIZE, Math.round(maxSide * iw / ih)), MIN_SIZE, MAX_SIZE);
     const nr = iw >= ih ? clamp(Math.max(MIN_SIZE, Math.round(maxSide * ih / iw)), MIN_SIZE, MAX_SIZE) : maxSide;
     if (nc !== state.cols || nr !== state.rows){
@@ -1125,17 +1206,54 @@ function generatePattern(){
   ctx.drawImage(state.refImage, (cols - dw) / 2, (rows - dh) / 2, dw, dh);
   const data = ctx.getImageData(0, 0, cols, rows).data;
   const g = makeGrid(cols, rows);
-  for (let r = 0; r < rows; r++){
-    for (let c = 0; c < cols; c++){
-      const i = (r * cols + c) * 4;
-      g[r][c] = nearestColor(data[i], data[i + 1], data[i + 2]);
+  const list = getColors();
+  const labList = list.map(function(c){
+    const cc = hexToRgb(c.hex);
+    return rgbToLab(cc.r, cc.g, cc.b);
+  });
+  const mode = colorCount ? colorCount.value : 'auto';
+  if (mode === 'all'){
+    /* 全部色：逐格映射到最接近的拼豆色（Lab 距离） */
+    for (let r = 0; r < rows; r++){
+      for (let c = 0; c < cols; c++){
+        const i = (r * cols + c) * 4;
+        g[r][c] = nearestColorLab(rgbToLab(data[i], data[i + 1], data[i + 2]), list, labList);
+      }
+    }
+  } else {
+    /* 自适应主色：先提取 N 个主色，再映射到拼豆色号 */
+    const samples = [];
+    for (let r = 0; r < rows; r++){
+      for (let c = 0; c < cols; c++){
+        const i = (r * cols + c) * 4;
+        samples.push(rgbToLab(data[i], data[i + 1], data[i + 2]));
+      }
+    }
+    let k = mode === 'auto' ? estimateColorK(data, cols, rows) : clampInt(mode, 4, 48);
+    k = Math.max(2, Math.min(k, Math.max(2, Math.floor((cols * rows) / 4))));
+    const centers = kMeansLab(samples, k);
+    const centerHex = centers.map(function(lab){ return nearestColorLab(lab, list, labList); });
+    for (let r = 0; r < rows; r++){
+      for (let c = 0; c < cols; c++){
+        const lab = samples[r * cols + c];
+        let bi = 0, bd = Infinity;
+        for (let j = 0; j < centers.length; j++){
+          const d = labDist(lab, centers[j]);
+          if (d < bd){ bd = d; bi = j; }
+        }
+        g[r][c] = centerHex[bi];
+      }
     }
   }
   pushUndo();
   state.grid = g;
   renderAll();
   autosave();
-  toast('已生成拼豆图纸（' + cols + '×' + rows + '，可撤销）');
+  const colorN = new Set();
+  for (let r = 0; r < rows; r++){
+    for (let c = 0; c < cols; c++){ if (g[r][c]) colorN.add(g[r][c]); }
+  }
+  toast('已生成拼豆图纸（' + cols + '×' + rows + '，' + colorN.size + ' 色，可撤销）');
   enterFocus();
 }
 function fitZoom(){
