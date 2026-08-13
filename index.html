@@ -562,6 +562,7 @@ body.focus-mode .stage{border-radius:14px;}
       <label class="slider-row">转换模式
         <select id="convertMode">
           <option value="photo" selected>保真照片（推荐·贴近原图）</option>
+          <option value="q">Q版（可爱·简化人像）</option>
           <option value="true">真彩全色（原色直贴）</option>
           <option value="auto">智能自动（主色提取）</option>
           <option value="simple">简约（少色·干净）</option>
@@ -1568,6 +1569,153 @@ function boxBlurF32(vals, cw, ch, r){
   }
   return out;
 }
+/* Q版风格化预处理：浅色区强平滑（抹平纹理与阴影）+ 提亮提饱和，深色五官（眼睛/发丝）保留 */
+function qStyleData(data, cw, ch, qDark){
+  for (let pass = 0; pass < 2; pass++){
+    const src = data.slice();
+    for (let y = 0; y < ch; y++){
+      for (let x = 0; x < cw; x++){
+        const i = (y * cw + x) * 4;
+        const L = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2];
+        if (qDark && qDark[y * cw + x]) continue; /* 五官特征格（眼睛/眉毛/发丝）不平滑不提亮 */
+        if (L < 55) continue;                    /* 深色特征（眼睛/发丝）保留 */
+        let r = 0, g = 0, b = 0, cnt = 0;
+        for (let dy = -2; dy <= 2; dy++){
+          for (let dx = -2; dx <= 2; dx++){
+            const yy = Math.min(ch - 1, Math.max(0, y + dy));
+            const xx = Math.min(cw - 1, Math.max(0, x + dx));
+            const j = (yy * cw + xx) * 4;
+            const Ln = 0.299 * src[j] + 0.587 * src[j + 1] + 0.114 * src[j + 2];
+            if (Ln < 40) continue;               /* 邻域深色不参与平滑 */
+            r += src[j]; g += src[j + 1]; b += src[j + 2]; cnt++;
+          }
+        }
+        if (cnt >= 4){
+          data[i] = r / cnt; data[i + 1] = g / cnt; data[i + 2] = b / cnt;
+        }
+      }
+    }
+  }
+  /* 提亮 + 提饱和：Q版明亮可爱 */
+  for (let i = 0; i < cw * ch; i++){
+    let r = data[i * 4] * 1.06 + 6;
+    let g = data[i * 4 + 1] * 1.06 + 6;
+    let b = data[i * 4 + 2] * 1.06 + 6;
+    const gray = (r + g + b) / 3;
+    const sf = 1.3;
+    r = gray + (r - gray) * sf;
+    g = gray + (g - gray) * sf;
+    b = gray + (b - gray) * sf;
+    data[i * 4] = r > 255 ? 255 : (r < 0 ? 0 : r);
+    data[i * 4 + 1] = g > 255 ? 255 : (g < 0 ? 0 : g);
+    data[i * 4 + 2] = b > 255 ? 255 : (b < 0 ? 0 : b);
+  }
+}
+/* Q版五官修复：量化后把被少色合并抹掉的小深色特征（眼睛/眉毛）按原色贴回最近色号 */
+function qRestoreFeatures(g, data, cw, ch, qDark, list, labList, qDarkData){
+  const n = cw * ch;
+  /* 色板深色系色号（L<58，Q版眼睛用深色才明显） */
+  const darkIdx = [];
+  for (let kk = 0; kk < list.length; kk++){
+    const cc = hexToRgb(list[kk].hex);
+    const LL = 0.299 * cc.r + 0.587 * cc.g + 0.114 * cc.b;
+    if (LL < 58) darkIdx.push(kk);
+  }
+  const seen = new Uint8Array(n);
+  for (let y = 0; y < ch; y++){
+    for (let x = 0; x < cw; x++){
+      const i = y * cw + x;
+      if (!qDark[i] || seen[i]) continue;
+      const stack = [i]; seen[i] = 1; const cells = [i];
+      while (stack.length){
+        const j = stack.pop();
+        const yy = (j / cw) | 0, xx = j % cw;
+        for (let dy = -1; dy <= 1; dy++){
+          for (let dx = -1; dx <= 1; dx++){
+            const yy2 = yy + dy, xx2 = xx + dx;
+            if (yy2 < 0 || yy2 >= ch || xx2 < 0 || xx2 >= cw) continue;
+            const k = yy2 * cw + xx2;
+            if (qDark[k] && !seen[k]){ seen[k] = 1; stack.push(k); cells.push(k); }
+          }
+        }
+      }
+      if (cells.length >= 1 && cells.length <= 20){
+        /* 周围必须有肤色（眼睛/眉毛在脸上；避免衣服/背景黑点） */
+        let skinAround = 0;
+        for (let t = 0; t < cells.length; t++){
+          const j = cells[t];
+          const yy = (j / cw) | 0, xx = j % cw;
+          for (let dy = -1; dy <= 1; dy++){
+            for (let dx = -1; dx <= 1; dx++){
+              const yy2 = yy + dy, xx2 = xx + dx;
+              if (yy2 < 0 || yy2 >= ch || xx2 < 0 || xx2 >= cw) continue;
+              const k = yy2 * cw + xx2;
+              if (qDark[k]) continue;
+              const hx = g[yy2][xx2];
+              if (!hx || hx.length !== 7) continue;
+              const cr = parseInt(hx.substr(1, 2), 16), cg = parseInt(hx.substr(3, 2), 16), cb = parseInt(hx.substr(5, 2), 16);
+              const cL = 0.299 * cr + 0.587 * cg + 0.114 * cb;
+              if (cr > cg + 5 && cr > cb + 8 && cL > 80) skinAround++;
+            }
+          }
+        }
+        if (skinAround < 3) continue;
+        /* 眼睛/眉毛等小特征：按原色贴回最近色号；原色较暗时用深色系 */
+        for (let t = 0; t < cells.length; t++){
+          const j = cells[t];
+          const yy = (j / cw) | 0, xx = j % cw;
+          const src = qDarkData || data;         /* 用快照：处理后的提亮不会影响深色判断 */
+          const Lq = 0.299 * src[j * 4] + 0.587 * src[j * 4 + 1] + 0.114 * src[j * 4 + 2];
+          const pool = (Lq < 95 && darkIdx.length) ? darkIdx : null;
+          const lab = rgbToLab(src[j * 4], src[j * 4 + 1], src[j * 4 + 2]);
+          let bi = 0, bd = Infinity;
+          if (pool){
+            for (let p = 0; p < pool.length; p++){
+              const kk = pool[p];
+              const dd = labDist(lab, labList[kk]);
+              if (dd < bd){ bd = dd; bi = kk; }
+            }
+          } else {
+            for (let kk = 0; kk < labList.length; kk++){
+              const dd = labDist(lab, labList[kk]);
+              if (dd < bd){ bd = dd; bi = kk; }
+            }
+          }
+          g[yy][xx] = list[bi].hex;
+        }
+      }
+    }
+  }
+}
+/* Q版网格清理：浅色区 3x3 多数滤波，让色块更干净（深色五官保留） */
+function qCleanupGrid(g, cw, ch){
+  const src = [];
+  for (let r = 0; r < ch; r++) src.push(g[r].slice());
+  for (let r = 1; r < ch - 1; r++){
+    for (let c = 1; c < cw - 1; c++){
+      const cur = src[r][c];
+      if (!cur) continue;
+      const curRgb = hexToRgb(cur);
+      const curL = 0.299 * curRgb.r + 0.587 * curRgb.g + 0.114 * curRgb.b;
+      if (curL < 60) continue;                   /* 深色格（眼睛/发丝）不动 */
+      const counts = {};
+      let best = null, bestN = 0;
+      for (let dr = -1; dr <= 1; dr++){
+        for (let dc = -1; dc <= 1; dc++){
+          const v = src[r + dr][c + dc];
+          if (!v) continue;
+          counts[v] = (counts[v] || 0) + 1;
+          if (counts[v] > bestN){ bestN = counts[v]; best = v; }
+        }
+      }
+      if (!(best && bestN >= 5)) continue;
+      const bestRgb = hexToRgb(best);
+      const bestL = 0.299 * bestRgb.r + 0.587 * bestRgb.g + 0.114 * bestRgb.b;
+      if (bestL < 60) continue;                  /* 多数色是深色也不动（保护轮廓） */
+      g[r][c] = best;
+    }
+  }
+}
 /* 照片级阴影掩码：在照片原始分辨率检测「平滑 + 肤色 + 暗于环境」的阴影区。
    眼睛/发丝/五官边缘因纹理强（局部方差大）或非肤色而被天然排除。 */
 function shadowMaskFromImage(img, cols, rows, strength){
@@ -1809,28 +1957,56 @@ function generatePattern(){
     dither: advDither ? parseInt(advDither.value, 10) : 0,
     shadow: advShadow ? parseInt(advShadow.value, 10) : 70
   };
+  /* Q版强制高阴影抑制 */
+  const shadowStr = (mode === 'q') ? Math.max(adv.shadow, 90) : adv.shadow;
   /* ✨ 智能增强：照片偏暗时自动提亮暗部并增强色彩，让图纸更清晰 */
   const doEnhance = enhanceOn && mode !== 'true';
   if (doEnhance) enhancePatternData(data, cols, rows);
   /* 手动调参：亮度 / 对比度 / 饱和度 / 锐化 / 平滑 */
   applyPreprocess(data, cols, rows, adv);
-  /* 阴影抑制：先算照片级平滑阴影掩码（眼睛/发丝等纹理自动排除），再按掩码提亮 */
+  /* 阴影掩码（只依赖原图，先算好备用） */
   let shadowMask = null;
-  if (adv.shadow > 0){
-    shadowMask = shadowMaskFromImage(state.refImage, cols, rows, adv.shadow);
-    suppressShadows(data, cols, rows, adv.shadow, shadowMask);
+  if (shadowStr > 0) shadowMask = shadowMaskFromImage(state.refImage, cols, rows, shadowStr);
+  /* Q版五官掩码：局部亮度差检测（比周围5x5暗>=20），阴影缓变区不触发，阴影内的眼睛也能找到 */
+  let qDark = null;
+  let qDarkData = null;
+  if (mode === 'q'){
+    qDark = new Uint8Array(cols * rows);
+    qDarkData = new Uint8ClampedArray(data);  /* 快照：qStyleData/阴影抑制前的暗五官数据 */
+    for (let y = 0; y < rows; y++){
+      for (let x = 0; x < cols; x++){
+        const i = (y * cols + x) * 4;
+        const Lc = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        if (Lc >= 100) continue;
+        let sum = 0;
+        for (let dy = -2; dy <= 2; dy++){
+          for (let dx = -2; dx <= 2; dx++){
+            const yy = Math.min(rows - 1, Math.max(0, y + dy));
+            const xx = Math.min(cols - 1, Math.max(0, x + dx));
+            const j = (yy * cols + xx) * 4;
+            sum += 0.299 * data[j] + 0.587 * data[j + 1] + 0.114 * data[j + 2];
+          }
+        }
+        if (sum / 25 - Lc >= 20) qDark[y * cols + x] = 1;
+      }
+    }
   }
+  /* Q版风格化：浅色区强平滑 + 提亮提饱和（五官特征格除外） */
+  if (mode === 'q') qStyleData(data, cols, rows, qDark);
+  /* 阴影抑制：按掩码提亮平滑阴影（眼睛/发丝等纹理自动排除） */
+  if (shadowStr > 0 && shadowMask) suppressShadows(data, cols, rows, shadowStr, shadowMask);
   const list = getColors();
   const labList = list.map(function(c){
     const cc = hexToRgb(c.hex);
     return rgbToLab(cc.r, cc.g, cc.b);
   });
   let g;
-  const kmeansMode = (mode === 'auto' || mode === 'simple' || mode === 'pixel');
+  const kmeansMode = (mode === 'auto' || mode === 'simple' || mode === 'pixel' || mode === 'q');
   if (kmeansMode){
     /* 主色提取：k-means 提取主色再映射拼豆色号 */
     let k;
-    if (mode === 'simple') k = 12;
+    if (mode === 'q') k = 14;
+    else if (mode === 'simple') k = 12;
     else if (mode === 'pixel') k = 8;
     else if (plan !== 'auto' && plan !== 'all') k = clampInt(plan, 4, 48);
     else k = estimateColorK(data, cols, rows);
@@ -1842,7 +2018,7 @@ function generatePattern(){
         samples.push(rgbToLab(data[i], data[i + 1], data[i + 2]));
       }
     }
-    const weights = doEnhance ? detailWeights(data, cols, rows) : null;
+    const weights = (doEnhance && mode !== 'q') ? detailWeights(data, cols, rows) : null;
     const centers = kMeansLab(samples, k, weights);
     const centerHex = centers.map(function(lab){ return nearestColorLab(lab, list, labList); });
     g = makeGrid(cols, rows);
@@ -1891,10 +2067,14 @@ function generatePattern(){
     }
   }
   /* 阴影抑制第二阶段：把掩码区内残留的阴影色块替换成周围主色（以大局为主） */
-  if (adv.shadow > 0) cleanupShadowCells(g, data, cols, rows, adv.shadow, shadowMask);
+  if (shadowStr > 0) cleanupShadowCells(g, data, cols, rows, shadowStr, shadowMask);
+  /* Q版网格清理：浅色区多数滤波，色块更干净 */
+  if (mode === 'q') qCleanupGrid(g, cols, rows);
   /* 轻量去噪：消除孤立的单格杂色，让图纸更干净 */
   denoiseGrid(g, cols, rows);  /* 轻量去噪：消除孤立的单格杂色，让图纸更干净 */
   denoiseGrid(g, cols, rows);
+  /* Q版五官修复：把量化抹掉的小深色特征（眼睛/眉毛）贴回 */
+  if (mode === 'q' && qDark) qRestoreFeatures(g, data, cols, rows, qDark, list, labList, qDarkData);
   pushUndo();
   state.grid = g;
   renderAll();
