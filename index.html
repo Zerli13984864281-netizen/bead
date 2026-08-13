@@ -551,6 +551,7 @@ body.focus-mode .stage{border-radius:14px;}
       <button id="btnGenerate" class="btn primary" style="width:100%; margin-top:8px;" disabled>🪄 生成拼豆图纸</button>
       <label class="switch-row"><span>显示底图</span><input type="checkbox" id="toggleRef" checked><i class="switch"></i></label>
       <label class="switch-row"><span>🪤 生成时自动适配照片比例</span><input type="checkbox" id="autoFitSize" checked><i class="switch"></i></label>
+      <label class="switch-row"><span>✨ 智能增强 <small style="color:var(--text-dim);font-size:10px;">提亮暗部·色彩更清晰</small></span><input type="checkbox" id="chkEnhance" checked><i class="switch"></i></label>
       <label class="slider-row">颜色数量
         <select id="colorCount">
           <option value="auto" selected>自动（推荐）</option>
@@ -760,9 +761,12 @@ const PALETTE_BASE = [
   {code:'G7', name:'棕色', hex:'#985C3A'},
   {code:'G8', name:'深棕', hex:'#713D2F'},
   {code:'H9', name:'浅灰', hex:'#EFEDEE'},
+  {code:'H3', name:'浅灰', hex:'#B4B4B4'},
   {code:'H22', name:'银灰', hex:'#CACAD2'},
+  {code:'H4', name:'中灰', hex:'#878787'},
   {code:'M2', name:'中灰', hex:'#909994'},
   {code:'M12', name:'深灰', hex:'#644B51'},
+  {code:'H5', name:'深灰', hex:'#464648'},
   {code:'H6', name:'炭黑', hex:'#2C2C2C'},
   {code:'H16', name:'黑色', hex:'#1B1213'},
   {code:'C14', name:'极浅蓝', hex:'#D5FCF7'}
@@ -785,7 +789,7 @@ const btnSave = $('btnSave'), btnLoad = $('btnLoad'), fileProject = $('fileProje
 const btnExport = $('btnExport'), btnCopyStats = $('btnCopyStats'), exportScale = $('exportScale');
 const paletteGrid = $('paletteGrid'), selectedColor = $('selectedColor'), selectedName = $('selectedName');
 const customColor = $('customColor'), btnAddColor = $('btnAddColor');
-const btnGenerate = $('btnGenerate'), btnFit = $('btnFit'), autoFitSize = $('autoFitSize'), colorCount = $('colorCount'), detailSize = $('detailSize');
+const btnGenerate = $('btnGenerate'), btnFit = $('btnFit'), autoFitSize = $('autoFitSize'), colorCount = $('colorCount'), detailSize = $('detailSize'), chkEnhance = $('chkEnhance');
 const materialsList = $('materialsList'), matSummary = $('matSummary'), btnCopyMat = $('btnCopyMat');
 const sbCoord = $('sbCoord'), sbColor = $('sbColor'), sbSize = $('sbSize'), sbZoom = $('sbZoom'), sbTotal = $('sbTotal');
 const statTotal = $('statTotal'), statColors = $('statColors'), statEmpty = $('statEmpty'), statPct = $('statPct');
@@ -1147,8 +1151,14 @@ function estimateColorK(data, cols, rows){
   const cells = cols * rows;
   return clamp(Math.round(seen.size * 0.9), 6, Math.min(32, Math.max(6, Math.floor(cells / 6))));
 }
-function kMeansLab(samples, k){
+function kMeansLab(samples, k, weights){
   const n = samples.length;
+  const w = weights || null;
+  let wSum = n;
+  if (w){
+    wSum = 0;
+    for (let i = 0; i < n; i++) wSum += w[i];
+  }
   const centers = [];
   for (let i = 0; i < k; i++){
     centers.push(samples[Math.min(n - 1, Math.floor(i * (n - 1) / Math.max(1, k - 1)))].slice());
@@ -1157,16 +1167,17 @@ function kMeansLab(samples, k){
     const sums = [];
     for (let j = 0; j < k; j++) sums.push({ L: 0, a: 0, b: 0, n: 0 });
     for (let s = 0; s < n; s++){
+      const wgt = w ? (w[s] * n / wSum) : 1;
       let bi = 0, bd = Infinity;
       for (let j = 0; j < k; j++){
         const d = labDist(centers[j], samples[s]);
         if (d < bd){ bd = d; bi = j; }
       }
-      sums[bi].L += samples[s][0]; sums[bi].a += samples[s][1]; sums[bi].b += samples[s][2]; sums[bi].n++;
+      sums[bi].L += samples[s][0] * wgt; sums[bi].a += samples[s][1] * wgt; sums[bi].b += samples[s][2] * wgt; sums[bi].n += wgt;
     }
     let moved = 0;
     for (let j = 0; j < k; j++){
-      if (sums[j].n){
+      if (sums[j].n > 0){
         const nc = [sums[j].L / sums[j].n, sums[j].a / sums[j].n, sums[j].b / sums[j].n];
         if (labDist(centers[j], nc) > 0.01) moved++;
         centers[j] = nc;
@@ -1175,6 +1186,78 @@ function kMeansLab(samples, k){
     if (!moved) break;
   }
   return centers;
+}
+/* ✨ 智能增强：按照片明暗自适应提亮暗部并增强色彩（直接修改像素数据） */
+function enhancePatternData(data, cw, ch){
+  let darkCnt = 0;
+  const lum = new Float32Array(cw * ch);
+  for (let i = 0; i < cw * ch; i++){
+    const L = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+    lum[i] = L;
+    if (L < 25) darkCnt++;
+  }
+  const t = clamp(darkCnt / (cw * ch) / 0.25, 0, 1);
+  const gamma = 0.95 - 0.38 * t;      /* 照片越暗，提亮越强 */
+  const satBoost = 1.15 + 0.30 * t;   /* 照片越暗，色彩增强越多 */
+  for (let i = 0; i < cw * ch; i++){
+    const L = lum[i];
+    const Ln = Math.pow(Math.max(0, L) / 255, gamma) * 255;
+    const f = L > 0 ? Ln / L : 0;
+    let r = data[i * 4] * f, g = data[i * 4 + 1] * f, b = data[i * 4 + 2] * f;
+    const gray = (r + g + b) / 3;
+    r = gray + (r - gray) * satBoost;
+    g = gray + (g - gray) * satBoost;
+    b = gray + (b - gray) * satBoost;
+    data[i * 4] = r > 255 ? 255 : (r < 0 ? 0 : r);
+    data[i * 4 + 1] = g > 255 ? 255 : (g < 0 ? 0 : g);
+    data[i * 4 + 2] = b > 255 ? 255 : (b < 0 ? 0 : b);
+  }
+}
+/* 局部细节权重：边缘/纹理越丰富权重越高，暗部额外加权 */
+function detailWeights(data, cw, ch){
+  const L = new Float32Array(cw * ch);
+  for (let i = 0; i < cw * ch; i++) L[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+  const w = new Float32Array(cw * ch);
+  for (let r = 0; r < ch; r++){
+    for (let c = 0; c < cw; c++){
+      let v = 0, cnt = 0;
+      for (let dr = -1; dr <= 1; dr++){
+        for (let dc = -1; dc <= 1; dc++){
+          const rr = r + dr, cc = c + dc;
+          if (rr < 0 || rr >= ch || cc < 0 || cc >= cw) continue;
+          const d = L[rr * cw + cc] - L[r * cw + c];
+          v += d * d; cnt++;
+        }
+      }
+      let wgt = Math.sqrt(v / cnt + 1);
+      if (L[r * cw + c] < 40) wgt *= 1.5;
+      w[r * cw + c] = wgt;
+    }
+  }
+  let sum = 0;
+  for (let i = 0; i < cw * ch; i++) sum += w[i];
+  const avg = sum / (cw * ch) || 1;
+  for (let i = 0; i < cw * ch; i++) w[i] /= avg;
+  return w;
+}
+/* 轻量去噪：与 8 邻格全部不同的孤立单格替换为相邻多数色 */
+function denoiseGrid(g, cw, ch){
+  if (cw * ch < 1600) return;
+  const src = [];
+  for (let r = 0; r < ch; r++) src.push(g[r].slice());
+  for (let r = 1; r < ch - 1; r++){
+    for (let c = 1; c < cw - 1; c++){
+      const v = src[r][c];
+      if (!v) continue;
+      const nb = [src[r - 1][c - 1], src[r - 1][c], src[r - 1][c + 1], src[r][c - 1], src[r][c + 1], src[r + 1][c - 1], src[r + 1][c], src[r + 1][c + 1]];
+      if (nb.indexOf(v) >= 0) continue;
+      const m = {};
+      nb.forEach(function(x){ if (x) m[x] = (m[x] || 0) + 1; });
+      let best = null, bestN = 0;
+      for (const key in m){ if (m[key] > bestN){ bestN = m[key]; best = key; } }
+      if (best) g[r][c] = best;
+    }
+  }
 }
 function generatePattern(){
   if (!state.refImage) return toast('请先导入参考图片');
@@ -1205,6 +1288,9 @@ function generatePattern(){
   ctx.fillRect(0, 0, cols, rows);
   ctx.drawImage(state.refImage, (cols - dw) / 2, (rows - dh) / 2, dw, dh);
   const data = ctx.getImageData(0, 0, cols, rows).data;
+  /* ✨ 智能增强：照片偏暗时自动提亮暗部并增强色彩，让图纸更清晰 */
+  const enhanceOn = !chkEnhance || chkEnhance.checked;
+  if (enhanceOn) enhancePatternData(data, cols, rows);
   const g = makeGrid(cols, rows);
   const list = getColors();
   const labList = list.map(function(c){
@@ -1231,7 +1317,9 @@ function generatePattern(){
     }
     let k = mode === 'auto' ? estimateColorK(data, cols, rows) : clampInt(mode, 4, 48);
     k = Math.max(2, Math.min(k, Math.max(2, Math.floor((cols * rows) / 4))));
-    const centers = kMeansLab(samples, k);
+    /* 按局部细节加权：细节丰富的区域（如面部）获得更多颜色中心，纯色背景不浪费色数 */
+    const weights = enhanceOn ? detailWeights(data, cols, rows) : null;
+    const centers = kMeansLab(samples, k, weights);
     const centerHex = centers.map(function(lab){ return nearestColorLab(lab, list, labList); });
     for (let r = 0; r < rows; r++){
       for (let c = 0; c < cols; c++){
@@ -1245,6 +1333,8 @@ function generatePattern(){
       }
     }
   }
+  /* 轻量去噪：消除孤立的单格杂色，让图纸更干净 */
+  denoiseGrid(g, cols, rows);
   pushUndo();
   state.grid = g;
   renderAll();
@@ -1253,7 +1343,7 @@ function generatePattern(){
   for (let r = 0; r < rows; r++){
     for (let c = 0; c < cols; c++){ if (g[r][c]) colorN.add(g[r][c]); }
   }
-  toast('已生成拼豆图纸（' + cols + '×' + rows + '，' + colorN.size + ' 色，可撤销）');
+  toast((enhanceOn ? '✨ 已智能增强 · ' : '') + '已生成拼豆图纸（' + cols + '×' + rows + '，' + colorN.size + ' 色，可撤销）');
   enterFocus();
 }
 function fitZoom(){
@@ -2165,6 +2255,9 @@ function bindEvents(){
     fileImage.value = '';
   });
   toggleRef.addEventListener('change', function(){ state.showRef = toggleRef.checked; drawReference(); autosave(); });
+  chkEnhance.addEventListener('change', function(){
+    try { localStorage.setItem('pbd-enhance-v1', chkEnhance.checked ? '1' : '0'); } catch(e){}
+  });
   refOpacity.addEventListener('input', function(){
     state.refOpacity = parseInt(refOpacity.value, 10) / 100;
     refOpacityValue.textContent = refOpacity.value + '%';
@@ -2312,6 +2405,7 @@ function bindEvents(){
 /* ================= 初始化 ================= */
 function init(){
   bindEvents();
+  try { chkEnhance.checked = localStorage.getItem('pbd-enhance-v1') !== '0'; } catch(e){}
   let restored = false;
   try {
     const raw = localStorage.getItem(LS_KEY);
