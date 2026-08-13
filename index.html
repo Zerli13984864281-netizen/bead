@@ -470,6 +470,13 @@ body.focus-mode .stage{border-radius:14px;}
 .focus-menu-item.on{background:var(--accent-soft); border-color:var(--accent); color:var(--accent); font-weight:600;}
 .focus-dock[hidden], .focus-exit[hidden], .focus-menu[hidden]{display:none !important;}
 
+
+/* 高级调参 */
+.adv-block{margin-top:8px; border:1px solid var(--border); border-radius:10px; overflow:hidden;}
+.adv-head{width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; background:var(--bg-2); border:none; color:var(--text); font-size:12.5px; cursor:pointer; transition:background .2s, color .2s; font-weight:600; font-family:inherit;}
+.adv-head:hover{background:var(--accent-soft); color:var(--accent);}
+.adv-body{padding:4px 10px 8px;}
+.adv-body .slider-row{margin:0; padding:5px 0;}
 </style>
 </head>
 <body>
@@ -552,18 +559,38 @@ body.focus-mode .stage{border-radius:14px;}
       <label class="switch-row"><span>显示底图</span><input type="checkbox" id="toggleRef" checked><i class="switch"></i></label>
       <label class="switch-row"><span>🪤 生成时自动适配照片比例</span><input type="checkbox" id="autoFitSize" checked><i class="switch"></i></label>
       <label class="switch-row"><span>✨ 智能增强 <small style="color:var(--text-dim);font-size:10px;">提亮暗部·色彩更清晰</small></span><input type="checkbox" id="chkEnhance" checked><i class="switch"></i></label>
-      <label class="slider-row">颜色数量
-        <select id="colorCount">
-          <option value="auto" selected>自动（推荐）</option>
-          <option value="8">8 色</option>
-          <option value="12">12 色</option>
-          <option value="16">16 色</option>
-          <option value="24">24 色</option>
-          <option value="32">32 色</option>
-          <option value="48">48 色</option>
-          <option value="all">全部 221 色</option>
+      <label class="slider-row">转换模式
+        <select id="convertMode">
+          <option value="photo" selected>保真照片（推荐·贴近原图）</option>
+          <option value="true">真彩全色（原色直贴）</option>
+          <option value="auto">智能自动（主色提取）</option>
+          <option value="simple">简约（少色·干净）</option>
+          <option value="pixel">像素（硬边·复古）</option>
         </select>
       </label>
+      <label class="slider-row">色数方案
+        <select id="colorCount">
+          <option value="auto" selected>自动（智能减色）</option>
+          <option value="24">一套 24 色装</option>
+          <option value="48">一套 48 色装</option>
+          <option value="72">一套 72 色装</option>
+          <option value="96">一套 96 色装</option>
+          <option value="all">全部 221 色直贴（最大还原）</option>
+        </select>
+      </label>
+      <div class="adv-block">
+        <button type="button" class="adv-head" id="advHead">⚙️ 高级调参 <span id="advArrow">▸</span></button>
+        <div class="adv-body" id="advBody" hidden>
+          <label class="slider-row">亮度 <input type="range" id="advBrightness" min="-100" max="100" step="1" value="0"><b>0</b></label>
+          <label class="slider-row">对比度 <input type="range" id="advContrast" min="-100" max="100" step="1" value="0"><b>0</b></label>
+          <label class="slider-row">饱和度 <input type="range" id="advSaturation" min="-100" max="100" step="1" value="0"><b>0</b></label>
+          <label class="slider-row">锐化 <input type="range" id="advSharpen" min="0" max="100" step="1" value="0"><b>0</b></label>
+          <label class="slider-row">平滑 <input type="range" id="advSmooth" min="0" max="100" step="1" value="0"><b>0</b></label>
+          <label class="slider-row">抖动 <input type="range" id="advDither" min="0" max="100" step="1" value="0"><b>0</b></label>
+          <button type="button" id="btnAdvReset" class="btn ghost small" style="width:100%;">↺ 重置调参</button>
+          <p class="custom-hint">亮度/对比度/饱和度 -100~100；锐化/平滑/抖动 0~100。渐变色块多的照片可适当开启「抖动」。</p>
+        </div>
+      </div>
       <label class="slider-row">图纸细节（长边）
         <select id="detailSize">
           <option value="60">60（标准）</option>
@@ -571,7 +598,7 @@ body.focus-mode .stage{border-radius:14px;}
           <option value="100">100（超清）</option>
         </select>
       </label>
-      <p class="custom-hint">自动取色会先提取照片主色再映射拼豆色号，实体相差更小；色数越少越简洁。</p>
+      <p class="custom-hint">保真照片：全 221 色逐格贴最近 MARD 色号，最接近原图；智能自动会先提取照片主色再映射色号。</p>
       <label class="slider-row">底图透明度 <input type="range" id="refOpacity" min="5" max="100" value="40"><b id="refOpacityValue">40%</b></label>
       <button id="btnRemoveRef" class="btn ghost danger-text" style="width:100%;">✖ 移除底图</button>
       <button id="btnFocus" class="btn ghost" style="width:100%; margin-top:8px;">🖥️ 沉浸模式 <small style="color:var(--text-dim);font-weight:400;">照片全屏拼豆</small></button>
@@ -718,58 +745,227 @@ const LS_FOCUSTOOLS = 'pbd-focus-tools-v1';
 let cssW = 0, cssH = 0;          /* 画布逻辑像素尺寸（配合 DPR 高清渲染） */
 
 const PALETTE_BASE = [
-  {code:'H1', name:'白色', hex:'#FFFFFF'},
-  {code:'G15', name:'奶油白', hex:'#F6F8E3'},
-  {code:'C13', name:'玉桂狗蓝', hex:'#CDE7FE'},
-  {code:'C3', name:'浅天蓝', hex:'#A2E0F7'},
-  {code:'C6', name:'天蓝', hex:'#54A7E9'},
-  {code:'C7', name:'湛蓝', hex:'#3977CA'},
-  {code:'C20', name:'宝蓝', hex:'#1A70A9'},
-  {code:'D4', name:'深蓝', hex:'#162D7B'},
-  {code:'C12', name:'藏青', hex:'#1E334E'},
-  {code:'E8', name:'浅粉', hex:'#FDDBE9'},
-  {code:'F21', name:'樱花粉', hex:'#F2B8C6'},
-  {code:'E12', name:'桃粉', hex:'#F693BF'},
-  {code:'E5', name:'玫红', hex:'#F0569F'},
-  {code:'F6', name:'酒红', hex:'#913635'},
-  {code:'D26', name:'浅紫', hex:'#D6C6EB'},
-  {code:'D12', name:'香芋紫', hex:'#DC99CE'},
-  {code:'D18', name:'紫罗兰', hex:'#9A64B8'},
-  {code:'C29', name:'深紫', hex:'#364A89'},
-  {code:'A24', name:'浅黄', hex:'#F3F6A9'},
-  {code:'A20', name:'柠檬黄', hex:'#F9D666'},
-  {code:'A26', name:'亮黄', hex:'#FFC734'},
-  {code:'G6', name:'金黄', hex:'#E3A014'},
-  {code:'A11', name:'浅橙', hex:'#FEDB99'},
-  {code:'A6', name:'蜜橙', hex:'#FDA951'},
-  {code:'A10', name:'橙色', hex:'#F47E38'},
-  {code:'G19', name:'深橙', hex:'#DD7D41'},
-  {code:'F3', name:'橘红', hex:'#EE4E3E'},
-  {code:'F2', name:'正红', hex:'#F63D4B'},
-  {code:'F7', name:'深红', hex:'#911932'},
-  {code:'G1', name:'浅肤', hex:'#FFE4D3'},
-  {code:'G2', name:'肤色', hex:'#FCC6AC'},
-  {code:'B20', name:'浅青', hex:'#CBECCF'},
-  {code:'B28', name:'薄荷绿', hex:'#9EE5BB'},
-  {code:'C22', name:'青绿', hex:'#6BB1BB'},
-  {code:'B32', name:'草绿', hex:'#92AD60'},
-  {code:'B8', name:'翠绿', hex:'#1D9B54'},
-  {code:'B12', name:'森林绿', hex:'#1A6E3D'},
-  {code:'B26', name:'橄榄绿', hex:'#907C35'},
-  {code:'G4', name:'浅棕', hex:'#DCB387'},
-  {code:'G21', name:'驼色', hex:'#B38561'},
-  {code:'G7', name:'棕色', hex:'#985C3A'},
-  {code:'G8', name:'深棕', hex:'#713D2F'},
-  {code:'H9', name:'浅灰', hex:'#EFEDEE'},
-  {code:'H3', name:'浅灰', hex:'#B4B4B4'},
-  {code:'H22', name:'银灰', hex:'#CACAD2'},
-  {code:'H4', name:'中灰', hex:'#878787'},
-  {code:'M2', name:'中灰', hex:'#909994'},
-  {code:'M12', name:'深灰', hex:'#644B51'},
-  {code:'H5', name:'深灰', hex:'#464648'},
-  {code:'H6', name:'炭黑', hex:'#2C2C2C'},
-  {code:'H16', name:'黑色', hex:'#1B1213'},
-  {code:'C14', name:'极浅蓝', hex:'#D5FCF7'}
+  {code:"A1", name:"浅黄", hex:"#FAF4C8"},
+  {code:"A2", name:"浅黄", hex:"#FFFFD5"},
+  {code:"A3", name:"亮黄", hex:"#FEFF8B"},
+  {code:"A4", name:"亮黄", hex:"#FBED56"},
+  {code:"A5", name:"黄", hex:"#F4D738"},
+  {code:"A6", name:"亮橙", hex:"#FEAC4C"},
+  {code:"A7", name:"亮橙", hex:"#FE8B4C"},
+  {code:"A8", name:"亮黄", hex:"#FFDA45"},
+  {code:"A9", name:"亮橙", hex:"#FF995B"},
+  {code:"A10", name:"橙", hex:"#F77C31"},
+  {code:"A11", name:"亮黄", hex:"#FFDD99"},
+  {code:"A12", name:"亮橙", hex:"#FE9F72"},
+  {code:"A13", name:"亮橙", hex:"#FFC365"},
+  {code:"A14", name:"红", hex:"#FD543D"},
+  {code:"A15", name:"亮黄", hex:"#FFF365"},
+  {code:"A16", name:"浅黄", hex:"#FFFF9F"},
+  {code:"A17", name:"亮黄", hex:"#FFE36E"},
+  {code:"A18", name:"亮橙", hex:"#FEBE7D"},
+  {code:"A19", name:"亮红", hex:"#FD7C72"},
+  {code:"A20", name:"亮黄", hex:"#FFD568"},
+  {code:"A21", name:"亮黄", hex:"#FFE395"},
+  {code:"A22", name:"亮黄", hex:"#F4F57D"},
+  {code:"A23", name:"浅橙", hex:"#E6C9B7"},
+  {code:"A24", name:"浅黄", hex:"#F7F8A2"},
+  {code:"A25", name:"亮黄", hex:"#FFD67D"},
+  {code:"A26", name:"黄", hex:"#FFC830"},
+  {code:"B1", name:"黄", hex:"#E6EE31"},
+  {code:"B2", name:"绿", hex:"#63F347"},
+  {code:"B3", name:"亮绿", hex:"#9EF780"},
+  {code:"B4", name:"绿", hex:"#5DE035"},
+  {code:"B5", name:"绿", hex:"#35E352"},
+  {code:"B6", name:"亮青", hex:"#65E2A6"},
+  {code:"B7", name:"青", hex:"#3DAF80"},
+  {code:"B8", name:"绿", hex:"#1C9C4F"},
+  {code:"B9", name:"深绿", hex:"#27523A"},
+  {code:"B10", name:"亮青", hex:"#95D3C2"},
+  {code:"B11", name:"黄绿", hex:"#5D722A"},
+  {code:"B12", name:"深绿", hex:"#166F41"},
+  {code:"B13", name:"亮黄绿", hex:"#CAEB7B"},
+  {code:"B14", name:"黄绿", hex:"#ADE946"},
+  {code:"B15", name:"深绿", hex:"#2E5132"},
+  {code:"B16", name:"亮黄绿", hex:"#C5ED9C"},
+  {code:"B17", name:"黄绿", hex:"#9BB13A"},
+  {code:"B18", name:"黄", hex:"#E6EE49"},
+  {code:"B19", name:"青", hex:"#24B88C"},
+  {code:"B20", name:"浅绿", hex:"#C2F0CC"},
+  {code:"B21", name:"深青", hex:"#156A6B"},
+  {code:"B22", name:"深青", hex:"#0B3C43"},
+  {code:"B23", name:"深黄绿", hex:"#303A21"},
+  {code:"B24", name:"浅黄绿", hex:"#EEFCA5"},
+  {code:"B25", name:"灰青", hex:"#4E846D"},
+  {code:"B26", name:"棕色", hex:"#8D7A35"},
+  {code:"B27", name:"亮黄绿", hex:"#CCE1AF"},
+  {code:"B28", name:"亮绿", hex:"#9EE5B9"},
+  {code:"B29", name:"黄绿", hex:"#C5E254"},
+  {code:"B30", name:"浅黄绿", hex:"#E2FCB1"},
+  {code:"B31", name:"亮绿", hex:"#B0E792"},
+  {code:"B32", name:"灰黄绿", hex:"#9CAB5A"},
+  {code:"C1", name:"浅绿", hex:"#E8FFE7"},
+  {code:"C2", name:"浅青", hex:"#A9F9FC"},
+  {code:"C3", name:"浅蓝", hex:"#A0E2FB"},
+  {code:"C4", name:"亮蓝", hex:"#41CCFF"},
+  {code:"C5", name:"蓝", hex:"#01ACEB"},
+  {code:"C6", name:"亮蓝", hex:"#50AAF0"},
+  {code:"C7", name:"蓝", hex:"#3677D2"},
+  {code:"C8", name:"蓝", hex:"#0F54C0"},
+  {code:"C9", name:"蓝", hex:"#324BCA"},
+  {code:"C10", name:"蓝", hex:"#3EBCE2"},
+  {code:"C11", name:"青", hex:"#28DDDE"},
+  {code:"C12", name:"深蓝", hex:"#1C334D"},
+  {code:"C13", name:"浅蓝", hex:"#CDE8FF"},
+  {code:"C14", name:"浅青", hex:"#D5FDFF"},
+  {code:"C15", name:"青", hex:"#22C4C6"},
+  {code:"C16", name:"蓝", hex:"#1557A8"},
+  {code:"C17", name:"青", hex:"#04D1F6"},
+  {code:"C18", name:"深蓝", hex:"#1D3344"},
+  {code:"C19", name:"蓝", hex:"#1887A2"},
+  {code:"C20", name:"蓝", hex:"#176DAF"},
+  {code:"C21", name:"浅蓝", hex:"#BEDDFF"},
+  {code:"C22", name:"青", hex:"#67B4BE"},
+  {code:"C23", name:"浅蓝", hex:"#C8E2FF"},
+  {code:"C24", name:"亮蓝", hex:"#7CC4FF"},
+  {code:"C25", name:"亮青", hex:"#A9E5E5"},
+  {code:"C26", name:"蓝", hex:"#3CAED8"},
+  {code:"C27", name:"浅蓝", hex:"#D3DFFA"},
+  {code:"C28", name:"浅蓝", hex:"#BBCFED"},
+  {code:"C29", name:"蓝", hex:"#34488E"},
+  {code:"D1", name:"浅蓝", hex:"#AEB4F2"},
+  {code:"D2", name:"亮蓝", hex:"#858EDD"},
+  {code:"D3", name:"蓝", hex:"#2F54AF"},
+  {code:"D4", name:"蓝", hex:"#182A84"},
+  {code:"D5", name:"紫", hex:"#B843C5"},
+  {code:"D6", name:"亮紫", hex:"#AC7BDE"},
+  {code:"D7", name:"紫", hex:"#8854B3"},
+  {code:"D8", name:"浅紫", hex:"#E2D3FF"},
+  {code:"D9", name:"浅紫", hex:"#D5B9F8"},
+  {code:"D10", name:"深紫", hex:"#361851"},
+  {code:"D11", name:"浅蓝", hex:"#B9BAE1"},
+  {code:"D12", name:"亮粉", hex:"#DE9AD4"},
+  {code:"D13", name:"粉", hex:"#B90095"},
+  {code:"D14", name:"紫", hex:"#8B279B"},
+  {code:"D15", name:"蓝", hex:"#2F1F90"},
+  {code:"D16", name:"浅蓝", hex:"#E3E1EE"},
+  {code:"D17", name:"浅蓝", hex:"#C4D4F6"},
+  {code:"D18", name:"紫", hex:"#A45EC7"},
+  {code:"D19", name:"浅粉", hex:"#D8C3D7"},
+  {code:"D20", name:"紫", hex:"#9C32B2"},
+  {code:"D21", name:"紫", hex:"#9A009B"},
+  {code:"D22", name:"蓝", hex:"#333A95"},
+  {code:"D23", name:"浅紫", hex:"#EBDAFC"},
+  {code:"D24", name:"亮蓝", hex:"#7786E5"},
+  {code:"D25", name:"蓝", hex:"#494FC7"},
+  {code:"D26", name:"浅紫", hex:"#DFC2F8"},
+  {code:"E1", name:"浅红", hex:"#FDD3CC"},
+  {code:"E2", name:"浅粉", hex:"#FEC0DF"},
+  {code:"E3", name:"浅粉", hex:"#FFB7E7"},
+  {code:"E4", name:"亮粉", hex:"#E8649E"},
+  {code:"E5", name:"亮粉", hex:"#F551A2"},
+  {code:"E6", name:"红", hex:"#F13D74"},
+  {code:"E7", name:"粉", hex:"#C63478"},
+  {code:"E8", name:"浅粉", hex:"#FFDBE9"},
+  {code:"E9", name:"亮粉", hex:"#E970CC"},
+  {code:"E10", name:"粉", hex:"#D33793"},
+  {code:"E11", name:"浅橙", hex:"#FCDDD2"},
+  {code:"E12", name:"亮粉", hex:"#F78FC3"},
+  {code:"E13", name:"粉", hex:"#B5006D"},
+  {code:"E14", name:"浅橙", hex:"#FFD1BA"},
+  {code:"E15", name:"浅红", hex:"#F8C7C9"},
+  {code:"E16", name:"浅橙", hex:"#FFF3EB"},
+  {code:"E17", name:"浅红", hex:"#FFE2EA"},
+  {code:"E18", name:"浅粉", hex:"#FFC7DB"},
+  {code:"E19", name:"浅粉", hex:"#FEBAD5"},
+  {code:"E20", name:"浅粉", hex:"#D8C7D1"},
+  {code:"E21", name:"亮红", hex:"#BD9DA1"},
+  {code:"E22", name:"灰粉", hex:"#B785A1"},
+  {code:"E23", name:"中灰", hex:"#937A8D"},
+  {code:"E24", name:"浅紫", hex:"#E1BCE8"},
+  {code:"F1", name:"亮红", hex:"#FD957B"},
+  {code:"F2", name:"红", hex:"#FC3D46"},
+  {code:"F3", name:"红", hex:"#F74941"},
+  {code:"F4", name:"红", hex:"#FC283C"},
+  {code:"F5", name:"红", hex:"#E7002F"},
+  {code:"F6", name:"红", hex:"#943630"},
+  {code:"F7", name:"红", hex:"#971937"},
+  {code:"F8", name:"红", hex:"#BC0028"},
+  {code:"F9", name:"亮红", hex:"#E2677A"},
+  {code:"F10", name:"橙", hex:"#8A4526"},
+  {code:"F11", name:"深红", hex:"#5A2121"},
+  {code:"F12", name:"亮红", hex:"#FD4E6A"},
+  {code:"F13", name:"红", hex:"#F35744"},
+  {code:"F14", name:"浅红", hex:"#FFA9AD"},
+  {code:"F15", name:"红", hex:"#D30022"},
+  {code:"F16", name:"浅橙", hex:"#FEC2A6"},
+  {code:"F17", name:"亮橙", hex:"#E69C79"},
+  {code:"F18", name:"棕色", hex:"#D37C46"},
+  {code:"F19", name:"红", hex:"#C1444A"},
+  {code:"F20", name:"亮红", hex:"#CD9391"},
+  {code:"F21", name:"浅红", hex:"#F7B4C6"},
+  {code:"F22", name:"浅红", hex:"#FDC0D0"},
+  {code:"F23", name:"亮红", hex:"#F67E66"},
+  {code:"F24", name:"亮红", hex:"#E698AA"},
+  {code:"F25", name:"红", hex:"#E54B4F"},
+  {code:"G1", name:"浅橙", hex:"#FFE2CE"},
+  {code:"G2", name:"浅橙", hex:"#FFC4AA"},
+  {code:"G3", name:"浅橙", hex:"#F4C3A5"},
+  {code:"G4", name:"亮橙", hex:"#E1B383"},
+  {code:"G5", name:"橙", hex:"#EDB045"},
+  {code:"G6", name:"棕色", hex:"#E99C17"},
+  {code:"G7", name:"棕", hex:"#9D5B3E"},
+  {code:"G8", name:"红", hex:"#753832"},
+  {code:"G9", name:"亮橙", hex:"#E6B483"},
+  {code:"G10", name:"棕色", hex:"#D98C39"},
+  {code:"G11", name:"亮橙", hex:"#E0C593"},
+  {code:"G12", name:"亮橙", hex:"#FFC890"},
+  {code:"G13", name:"棕色", hex:"#B7714A"},
+  {code:"G14", name:"灰棕", hex:"#8D614C"},
+  {code:"G15", name:"浅黄", hex:"#FCF9E0"},
+  {code:"G16", name:"浅橙", hex:"#F2D9BA"},
+  {code:"G17", name:"灰红", hex:"#78524B"},
+  {code:"G18", name:"浅橙", hex:"#FFE4CC"},
+  {code:"G19", name:"棕色", hex:"#E07935"},
+  {code:"G20", name:"红", hex:"#A94023"},
+  {code:"G21", name:"棕色", hex:"#B88558"},
+  {code:"H1", name:"浅紫", hex:"#FDFBFF"},
+  {code:"H2", name:"浅青", hex:"#FEFFFF"},
+  {code:"H3", name:"中灰", hex:"#B6B1BA"},
+  {code:"H4", name:"中灰", hex:"#89858C"},
+  {code:"H5", name:"深灰", hex:"#48464E"},
+  {code:"H6", name:"黑色", hex:"#2F2B2F"},
+  {code:"H7", name:"黑色", hex:"#000000"},
+  {code:"H8", name:"浅红", hex:"#E7D6DB"},
+  {code:"H9", name:"白色", hex:"#EDEDED"},
+  {code:"H10", name:"浅红", hex:"#EEE9EA"},
+  {code:"H11", name:"浅灰", hex:"#CECDD5"},
+  {code:"H12", name:"浅橙", hex:"#FFF5ED"},
+  {code:"H13", name:"浅黄", hex:"#F5ECD2"},
+  {code:"H14", name:"浅灰", hex:"#CFD7D3"},
+  {code:"H15", name:"中灰", hex:"#98A6A8"},
+  {code:"H16", name:"深红", hex:"#1D1414"},
+  {code:"H17", name:"浅红", hex:"#F1EDED"},
+  {code:"H18", name:"浅黄", hex:"#FFFDF0"},
+  {code:"H19", name:"浅橙", hex:"#F6EFE2"},
+  {code:"H20", name:"中灰", hex:"#949FA3"},
+  {code:"H21", name:"浅黄", hex:"#FFFBE1"},
+  {code:"H22", name:"浅灰", hex:"#CACAD4"},
+  {code:"H23", name:"中灰", hex:"#9A9D94"},
+  {code:"M1", name:"中灰", hex:"#BCC6B8"},
+  {code:"M2", name:"灰绿", hex:"#8AA386"},
+  {code:"M3", name:"中灰", hex:"#697D80"},
+  {code:"M4", name:"浅橙", hex:"#E3D2BC"},
+  {code:"M5", name:"亮黄", hex:"#D0CCAA"},
+  {code:"M6", name:"灰棕", hex:"#B0A782"},
+  {code:"M7", name:"亮橙", hex:"#B4A497"},
+  {code:"M8", name:"灰红", hex:"#B38281"},
+  {code:"M9", name:"灰棕", hex:"#A58767"},
+  {code:"M10", name:"亮粉", hex:"#C5B2BC"},
+  {code:"M11", name:"灰粉", hex:"#9F7594"},
+  {code:"M12", name:"灰红", hex:"#644749"},
+  {code:"M13", name:"橙", hex:"#D19066"},
+  {code:"M14", name:"棕", hex:"#C77362"},
+  {code:"M15", name:"中灰", hex:"#757D78"}
 ];
 
 const $ = function(id){ return document.getElementById(id); };
@@ -790,6 +986,8 @@ const btnExport = $('btnExport'), btnCopyStats = $('btnCopyStats'), exportScale 
 const paletteGrid = $('paletteGrid'), selectedColor = $('selectedColor'), selectedName = $('selectedName');
 const customColor = $('customColor'), btnAddColor = $('btnAddColor');
 const btnGenerate = $('btnGenerate'), btnFit = $('btnFit'), autoFitSize = $('autoFitSize'), colorCount = $('colorCount'), detailSize = $('detailSize'), chkEnhance = $('chkEnhance');
+const convertMode = $('convertMode'), advHead = $('advHead'), advBody = $('advBody'), advArrow = $('advArrow'), btnAdvReset = $('btnAdvReset');
+const advBrightness = $('advBrightness'), advContrast = $('advContrast'), advSaturation = $('advSaturation'), advSharpen = $('advSharpen'), advSmooth = $('advSmooth'), advDither = $('advDither');
 const materialsList = $('materialsList'), matSummary = $('matSummary'), btnCopyMat = $('btnCopyMat');
 const sbCoord = $('sbCoord'), sbColor = $('sbColor'), sbSize = $('sbSize'), sbZoom = $('sbZoom'), sbTotal = $('sbTotal');
 const statTotal = $('statTotal'), statColors = $('statColors'), statEmpty = $('statEmpty'), statPct = $('statPct');
@@ -810,7 +1008,7 @@ const state = {
   zoom: 1,
   showGrid: true, showRulers: true, showNumbers: true,
   showRef: true, refOpacity: 0.4,
-  color: '#CBE9F7',
+  color: '#CDE8FF',
   customColors: [],
   customPresets: [],
   focus: false, focusTools: [],
@@ -1149,7 +1347,7 @@ function estimateColorK(data, cols, rows){
     }
   }
   const cells = cols * rows;
-  return clamp(Math.round(seen.size * 0.9), 6, Math.min(32, Math.max(6, Math.floor(cells / 6))));
+  return clamp(Math.round(seen.size * 0.9), 6, Math.min(48, Math.max(6, Math.floor(cells / 6))));
 }
 function kMeansLab(samples, k, weights){
   const n = samples.length;
@@ -1212,6 +1410,92 @@ function enhancePatternData(data, cw, ch){
     data[i * 4 + 1] = g > 255 ? 255 : (g < 0 ? 0 : g);
     data[i * 4 + 2] = b > 255 ? 255 : (b < 0 ? 0 : b);
   }
+}
+/* 手动调参：亮度 / 对比度 / 饱和度 / 锐化 / 平滑（直接修改像素数据） */
+function applyPreprocess(data, cw, ch, adv){
+  const b = adv.brightness || 0, c = adv.contrast || 0, s = adv.saturation || 0;
+  const sharp = adv.sharpen || 0, smooth = adv.smooth || 0;
+  if (b || c || s){
+    const cf = 1 + c / 100, off = b * 2.55, sf = 1 + s / 100;
+    for (let i = 0; i < cw * ch; i++){
+      let r = (data[i * 4] - 128) * cf + 128 + off;
+      let g = (data[i * 4 + 1] - 128) * cf + 128 + off;
+      let bl = (data[i * 4 + 2] - 128) * cf + 128 + off;
+      if (s){
+        const gray = (r + g + bl) / 3;
+        r = gray + (r - gray) * sf; g = gray + (g - gray) * sf; bl = gray + (bl - gray) * sf;
+      }
+      data[i * 4] = r < 0 ? 0 : (r > 255 ? 255 : r);
+      data[i * 4 + 1] = g < 0 ? 0 : (g > 255 ? 255 : g);
+      data[i * 4 + 2] = bl < 0 ? 0 : (bl > 255 ? 255 : bl);
+    }
+  }
+  if (sharp > 0 || smooth > 0){
+    const src = data.slice();
+    const amt = sharp / 100, sm = smooth / 100;
+    for (let r = 0; r < ch; r++){
+      for (let c = 0; c < cw; c++){
+        const i = (r * cw + c) * 4;
+        for (let chn = 0; chn < 3; chn++){
+          const v = src[i + chn];
+          let sum = 0, cnt = 0;
+          for (let dr = -1; dr <= 1; dr++){
+            for (let dc = -1; dc <= 1; dc++){
+              const rr = r + dr, cc = c + dc;
+              if (rr < 0 || rr >= ch || cc < 0 || cc >= cw) continue;
+              sum += src[(rr * cw + cc) * 4 + chn]; cnt++;
+            }
+          }
+          const mean = sum / cnt;
+          let nv = v;
+          if (sm > 0) nv = v + (mean - v) * sm;
+          if (amt > 0) nv = nv + (nv - mean) * amt;
+          data[i + chn] = nv < 0 ? 0 : (nv > 255 ? 255 : nv);
+        }
+      }
+    }
+  }
+}
+/* 逐格直贴：每格取色板上最近色号（Lab 距离） */
+function nearestGrid(data, cw, ch, list, labList){
+  const g = makeGrid(cw, ch);
+  for (let r = 0; r < ch; r++){
+    for (let c = 0; c < cw; c++){
+      const i = (r * cw + c) * 4;
+      g[r][c] = nearestColorLab(rgbToLab(data[i], data[i + 1], data[i + 2]), list, labList);
+    }
+  }
+  return g;
+}
+/* Floyd–Steinberg 误差扩散抖动：让渐变更平滑（保真照片模式） */
+function ditherMap(data, cw, ch, list, labList, strength){
+  const w = clamp(strength, 0, 100) / 100;
+  const cur = new Float32Array(cw * ch * 3);
+  for (let i = 0; i < cw * ch; i++){
+    cur[i * 3] = data[i * 4]; cur[i * 3 + 1] = data[i * 4 + 1]; cur[i * 3 + 2] = data[i * 4 + 2];
+  }
+  const g = makeGrid(cw, ch);
+  for (let r = 0; r < ch; r++){
+    for (let c = 0; c < cw; c++){
+      const i = r * cw + c;
+      const lab = rgbToLab(cur[i * 3], cur[i * 3 + 1], cur[i * 3 + 2]);
+      let bi = 0, bd = Infinity;
+      for (let j = 0; j < list.length; j++){
+        const d = labDist(lab, labList[j]);
+        if (d < bd){ bd = d; bi = j; }
+      }
+      g[r][c] = list[bi].hex;
+      const nc = hexToRgb(list[bi].hex);
+      const er = (cur[i * 3] - nc.r) * w, eg = (cur[i * 3 + 1] - nc.g) * w, eb = (cur[i * 3 + 2] - nc.b) * w;
+      if (c + 1 < cw){ const j = i + 1; cur[j * 3] += er * 7 / 16; cur[j * 3 + 1] += eg * 7 / 16; cur[j * 3 + 2] += eb * 7 / 16; }
+      if (r + 1 < ch){
+        if (c > 0){ const j = i + cw - 1; cur[j * 3] += er * 3 / 16; cur[j * 3 + 1] += eg * 3 / 16; cur[j * 3 + 2] += eb * 3 / 16; }
+        const j = i + cw; cur[j * 3] += er * 5 / 16; cur[j * 3 + 1] += eg * 5 / 16; cur[j * 3 + 2] += eb * 5 / 16;
+        if (c + 1 < cw){ const j = i + cw + 1; cur[j * 3] += er * 1 / 16; cur[j * 3 + 1] += eg * 1 / 16; cur[j * 3 + 2] += eb * 1 / 16; }
+      }
+    }
+  }
+  return g;
 }
 /* 局部细节权重：边缘/纹理越丰富权重越高，暗部额外加权 */
 function detailWeights(data, cw, ch){
@@ -1288,26 +1572,38 @@ function generatePattern(){
   ctx.fillRect(0, 0, cols, rows);
   ctx.drawImage(state.refImage, (cols - dw) / 2, (rows - dh) / 2, dw, dh);
   const data = ctx.getImageData(0, 0, cols, rows).data;
-  /* ✨ 智能增强：照片偏暗时自动提亮暗部并增强色彩，让图纸更清晰 */
+  /* 预设参数 */
+  const mode = convertMode ? convertMode.value : 'photo';
+  const plan = colorCount ? colorCount.value : 'auto';
   const enhanceOn = !chkEnhance || chkEnhance.checked;
-  if (enhanceOn) enhancePatternData(data, cols, rows);
-  const g = makeGrid(cols, rows);
+  const adv = {
+    brightness: advBrightness ? parseInt(advBrightness.value, 10) : 0,
+    contrast: advContrast ? parseInt(advContrast.value, 10) : 0,
+    saturation: advSaturation ? parseInt(advSaturation.value, 10) : 0,
+    sharpen: advSharpen ? parseInt(advSharpen.value, 10) : 0,
+    smooth: advSmooth ? parseInt(advSmooth.value, 10) : 0,
+    dither: advDither ? parseInt(advDither.value, 10) : 0
+  };
+  /* ✨ 智能增强：照片偏暗时自动提亮暗部并增强色彩，让图纸更清晰 */
+  const doEnhance = enhanceOn && mode !== 'true';
+  if (doEnhance) enhancePatternData(data, cols, rows);
+  /* 手动调参：亮度 / 对比度 / 饱和度 / 锐化 / 平滑 */
+  applyPreprocess(data, cols, rows, adv);
   const list = getColors();
   const labList = list.map(function(c){
     const cc = hexToRgb(c.hex);
     return rgbToLab(cc.r, cc.g, cc.b);
   });
-  const mode = colorCount ? colorCount.value : 'auto';
-  if (mode === 'all'){
-    /* 全部色：逐格映射到最接近的拼豆色（Lab 距离） */
-    for (let r = 0; r < rows; r++){
-      for (let c = 0; c < cols; c++){
-        const i = (r * cols + c) * 4;
-        g[r][c] = nearestColorLab(rgbToLab(data[i], data[i + 1], data[i + 2]), list, labList);
-      }
-    }
-  } else {
-    /* 自适应主色：先提取 N 个主色，再映射到拼豆色号 */
+  let g;
+  const kmeansMode = (mode === 'auto' || mode === 'simple' || mode === 'pixel');
+  if (kmeansMode){
+    /* 主色提取：k-means 提取主色再映射拼豆色号 */
+    let k;
+    if (mode === 'simple') k = 12;
+    else if (mode === 'pixel') k = 8;
+    else if (plan !== 'auto' && plan !== 'all') k = clampInt(plan, 4, 48);
+    else k = estimateColorK(data, cols, rows);
+    k = Math.max(2, Math.min(k, Math.max(2, Math.floor((cols * rows) / 4))));
     const samples = [];
     for (let r = 0; r < rows; r++){
       for (let c = 0; c < cols; c++){
@@ -1315,12 +1611,10 @@ function generatePattern(){
         samples.push(rgbToLab(data[i], data[i + 1], data[i + 2]));
       }
     }
-    let k = mode === 'auto' ? estimateColorK(data, cols, rows) : clampInt(mode, 4, 48);
-    k = Math.max(2, Math.min(k, Math.max(2, Math.floor((cols * rows) / 4))));
-    /* 按局部细节加权：细节丰富的区域（如面部）获得更多颜色中心，纯色背景不浪费色数 */
-    const weights = enhanceOn ? detailWeights(data, cols, rows) : null;
+    const weights = doEnhance ? detailWeights(data, cols, rows) : null;
     const centers = kMeansLab(samples, k, weights);
     const centerHex = centers.map(function(lab){ return nearestColorLab(lab, list, labList); });
+    g = makeGrid(cols, rows);
     for (let r = 0; r < rows; r++){
       for (let c = 0; c < cols; c++){
         const lab = samples[r * cols + c];
@@ -1332,8 +1626,41 @@ function generatePattern(){
         g[r][c] = centerHex[bi];
       }
     }
+  } else {
+    /* 直贴模式：每格取色板上最近色号（保真照片 / 真彩全色） */
+    const kLimit = (plan !== 'auto' && plan !== 'all') ? clampInt(plan, 4, 96) : 0;
+    if (kLimit > 0){
+      /* 指定色数：先 k-means 压缩到 kLimit 个主色，再映射色号 */
+      const samples = [];
+      for (let r = 0; r < rows; r++){
+        for (let c = 0; c < cols; c++){
+          const i = (r * cols + c) * 4;
+          samples.push(rgbToLab(data[i], data[i + 1], data[i + 2]));
+        }
+      }
+      const k = Math.max(2, Math.min(kLimit, Math.max(2, Math.floor((cols * rows) / 4))));
+      const centers = kMeansLab(samples, k, null);
+      const centerHex = centers.map(function(lab){ return nearestColorLab(lab, list, labList); });
+      g = makeGrid(cols, rows);
+      for (let r = 0; r < rows; r++){
+        for (let c = 0; c < cols; c++){
+          const lab = samples[r * cols + c];
+          let bi = 0, bd = Infinity;
+          for (let j = 0; j < centers.length; j++){
+            const d = labDist(lab, centers[j]);
+            if (d < bd){ bd = d; bi = j; }
+          }
+          g[r][c] = centerHex[bi];
+        }
+      }
+    } else if (adv.dither > 0 && mode === 'photo' && cols * rows >= 900){
+      g = ditherMap(data, cols, rows, list, labList, adv.dither);
+    } else {
+      g = nearestGrid(data, cols, rows, list, labList);
+    }
   }
   /* 轻量去噪：消除孤立的单格杂色，让图纸更干净 */
+  denoiseGrid(g, cols, rows);  /* 轻量去噪：消除孤立的单格杂色，让图纸更干净 */
   denoiseGrid(g, cols, rows);
   pushUndo();
   state.grid = g;
@@ -2264,6 +2591,22 @@ function bindEvents(){
     drawReference();
   });
   refOpacity.addEventListener('change', autosave);
+  /* 高级调参 */
+  advHead.addEventListener('click', function(){
+    const hidden = advBody.hidden;
+    advBody.hidden = !hidden;
+    advArrow.textContent = hidden ? '▾' : '▸';
+  });
+  [advBrightness, advContrast, advSaturation, advSharpen, advSmooth, advDither].forEach(function(inp){
+    inp.addEventListener('input', function(){
+      inp.nextElementSibling.textContent = inp.value;
+    });
+  });
+  btnAdvReset.addEventListener('click', function(){
+    [advBrightness, advContrast, advSaturation, advSharpen, advSmooth].forEach(function(inp){ inp.value = 0; inp.nextElementSibling.textContent = '0'; });
+    advDither.value = 0; advDither.nextElementSibling.textContent = '0';
+    toast('高级调参已重置');
+  });
   btnRemoveRef.addEventListener('click', function(){
     state.refImage = null; state.refDataUrl = null;
     drawReference(); autosave();
